@@ -15,74 +15,7 @@ const T = {
 }
 
 // ─── STATIC DATA ──────────────────────────────────────────────────────────────
-const SPLIT = [
-  { id: 'legs',   label: 'Legs',        tag: 'Quadríceps · Posterior · Glúteo', color: T.treino,  emoji: '🦵', day: 'Seg' },
-  { id: 'push_a', label: 'Push A',      tag: 'Peito · Ombro · Tríceps',         color: '#9EC4A0', emoji: '💪', day: 'Ter' },
-  { id: 'pull_a', label: 'Pull A',      tag: 'Costas · Bíceps',                 color: T.horm,    emoji: '🔵', day: 'Qua' },
-  { id: 'off',    label: 'Futebol',     tag: 'Descanso ativo — Quinta',         color: T.muted,   emoji: '⚽', day: 'Qui' },
-  { id: 'push_b', label: 'Push B',      tag: 'Peito · Ombro · Tríceps',         color: '#9EC4A0', emoji: '💪', day: 'Sex' },
-  { id: 'arms',   label: 'Braço+Peito', tag: 'Bíceps · Tríceps · Peito',        color: T.nutri,   emoji: '💪', day: 'Sáb' },
-  { id: 'pull_b', label: 'Pull B',      tag: 'Costas · Bíceps',                 color: T.horm,    emoji: '🔵', day: 'Dom' },
-]
 
-const EXERCISES = {
-  legs: [
-    { name: 'Agachamento Livre',        sets: 4, reps: '6–8',   rest: 180, muscle: 'Quad',    cue: 'Abaixo do paralelo. Joelhos na linha dos pés.' },
-    { name: 'Leg Press 45°',            sets: 3, reps: '10–12', rest: 120, muscle: 'Quad',    cue: 'Não trave o joelho no topo.' },
-    { name: 'Cadeira Extensora',        sets: 3, reps: '12–15', rest: 60,  muscle: 'Quad',    cue: 'Pausa 1s na contração.' },
-    { name: 'Stiff Barra',              sets: 4, reps: '8–10',  rest: 120, muscle: 'Post.',   cue: 'Quadril para trás. Sente o alongamento.' },
-    { name: 'Leg Curl Deitado',         sets: 3, reps: '10–12', rest: 90,  muscle: 'Post.',   cue: 'Quadril grudado no banco.' },
-    { name: 'Hip Thrust Barra',         sets: 4, reps: '10–12', rest: 90,  muscle: 'Glúteo',  cue: 'Pausa 1s no topo. Extensão completa.' },
-    { name: 'Panturrilha em Pé',        sets: 4, reps: '15–20', rest: 60,  muscle: 'Pantur.', cue: 'Amplitude total. Pausa no topo e fundo.' },
-    { name: '🏃 Cardio — Escada',       sets: 1, reps: '25min', rest: 0,   muscle: 'Cardio',  cue: '130–150bpm. Intensidade moderada.' },
-  ],
-  push_a: [
-    { name: 'Supino Reto Barra',         sets: 4, reps: '6–8',   rest: 150, muscle: 'Peito',   cue: 'Escápulas retraídas. Desça 2s controlado.' },
-    { name: 'Supino Inclinado Halteres', sets: 3, reps: '8–10',  rest: 90,  muscle: 'Peito',   cue: '30–45°. Porção clavicular.' },
-    { name: 'Desenvolvimento Militar',   sets: 4, reps: '6–8',   rest: 150, muscle: 'Ombro',   cue: 'Core contraído. Sem hiperlordose.' },
-    { name: 'Elevação Lateral',          sets: 4, reps: '12–15', rest: 60,  muscle: 'Ombro',   cue: 'Cotovelo levemente flexionado.' },
-    { name: 'Tríceps Corda Polia',       sets: 3, reps: '10–12', rest: 60,  muscle: 'Tríceps', cue: 'Cotovelos fixos. Extensão total.' },
-    { name: 'Tríceps Francês',           sets: 3, reps: '10–12', rest: 60,  muscle: 'Tríceps', cue: 'Não abra o cotovelo.' },
-    { name: '🏃 Cardio — Escada',        sets: 1, reps: '25min', rest: 0,   muscle: 'Cardio',  cue: '130–150bpm.' },
-  ],
-  pull_a: [
-    { name: 'Barra Fixa Pronada',         sets: 4, reps: '6–8',   rest: 150, muscle: 'Costas', cue: 'Amplitude total. Peito até a barra.' },
-    { name: 'Remada Curvada Barra',       sets: 4, reps: '6–8',   rest: 120, muscle: 'Costas', cue: '45°. Puxe para o umbigo.' },
-    { name: 'Puxada Aberta Polia',        sets: 3, reps: '10–12', rest: 90,  muscle: 'Costas', cue: 'Cotovelos para baixo e para trás.' },
-    { name: 'Remada Unilateral Haltere',  sets: 3, reps: '10–12', rest: 60,  muscle: 'Costas', cue: 'Não rotacione o tronco.' },
-    { name: 'Rosca Direta Barra',         sets: 3, reps: '8–10',  rest: 90,  muscle: 'Bíceps', cue: 'Supinação completa no topo.' },
-    { name: 'Rosca Martelo',              sets: 3, reps: '10–12', rest: 60,  muscle: 'Bíceps', cue: 'Pegada neutra. Braquial.' },
-    { name: '🏃 Cardio — Escada',         sets: 1, reps: '25min', rest: 0,   muscle: 'Cardio', cue: '130–150bpm.' },
-  ],
-  push_b: [
-    { name: 'Supino Inclinado Barra',    sets: 4, reps: '8–10',  rest: 120, muscle: 'Peito',   cue: 'Mais volume no peitoral superior.' },
-    { name: 'Crossover Polia Alta',      sets: 3, reps: '12–15', rest: 60,  muscle: 'Peito',   cue: 'Adução completa. Contração central.' },
-    { name: 'Desenvolvimento Halteres',  sets: 4, reps: '8–10',  rest: 90,  muscle: 'Ombro',   cue: 'Maior amplitude. Rotação neutra no fundo.' },
-    { name: 'Elevação Frontal',          sets: 3, reps: '12–15', rest: 60,  muscle: 'Ombro',   cue: 'Sem impulso. Alternado.' },
-    { name: 'Mergulho Paralelas',        sets: 3, reps: '8–12',  rest: 90,  muscle: 'Tríceps', cue: 'Tronco levemente à frente.' },
-    { name: 'Extensão Tríceps Overhead', sets: 3, reps: '12–15', rest: 60,  muscle: 'Tríceps', cue: 'Cotovelos junto à cabeça.' },
-    { name: '🏃 Cardio — Escada',        sets: 1, reps: '25min', rest: 0,   muscle: 'Cardio',  cue: '130–150bpm.' },
-  ],
-  arms: [
-    { name: 'Rosca Scott Barra W',     sets: 4, reps: '8–10',  rest: 90, muscle: 'Bíceps',  cue: 'Elimina o impulso. Amplitude total.' },
-    { name: 'Rosca Concentrada',       sets: 3, reps: '12–15', rest: 60, muscle: 'Bíceps',  cue: 'Cúbito no interior da coxa.' },
-    { name: 'Rosca Alternada Haltere', sets: 3, reps: '10–12', rest: 60, muscle: 'Bíceps',  cue: 'Supinação no topo. Sem impulso.' },
-    { name: 'Tríceps Corda Polia',     sets: 4, reps: '12–15', rest: 60, muscle: 'Tríceps', cue: 'Cotovelos fixos. Extensão total.' },
-    { name: 'Tríceps Francês Haltere', sets: 3, reps: '10–12', rest: 60, muscle: 'Tríceps', cue: 'Não abra o cotovelo.' },
-    { name: 'Mergulho Paralelas',      sets: 3, reps: '10–12', rest: 90, muscle: 'Tríceps', cue: 'Corpo mais vertical para tríceps.' },
-    { name: 'Crossover / Fly Cabo',    sets: 3, reps: '15–20', rest: 60, muscle: 'Peito',   cue: 'Estímulo leve de peito. Contração central.' },
-    { name: '🏃 Cardio — Escada',      sets: 1, reps: '25min', rest: 0,  muscle: 'Cardio',  cue: '130–150bpm.' },
-  ],
-  pull_b: [
-    { name: 'Remada T-bar',           sets: 4, reps: '8–10',  rest: 120, muscle: 'Costas',   cue: 'Puxe para o plexo. Escápulas no topo.' },
-    { name: 'Puxada Triângulo Neutro',sets: 3, reps: '10–12', rest: 90,  muscle: 'Costas',   cue: 'Puxe para o esterno.' },
-    { name: 'Pullover Haltere',       sets: 3, reps: '12–15', rest: 60,  muscle: 'Costas',   cue: 'Cotovelo levemente flexionado.' },
-    { name: 'Face Pull',              sets: 3, reps: '15–20', rest: 60,  muscle: 'Ombro P.', cue: 'Essencial para manguito rotador.' },
-    { name: 'Rosca Scott Barra W',    sets: 3, reps: '10–12', rest: 60,  muscle: 'Bíceps',   cue: 'Elimina o impulso.' },
-    { name: 'Rosca Martelo',          sets: 3, reps: '10–12', rest: 60,  muscle: 'Bíceps',   cue: 'Pegada neutra. Braquial.' },
-    { name: '🏃 Cardio — Escada',     sets: 1, reps: '25min', rest: 0,   muscle: 'Cardio',   cue: '130–150bpm.' },
-  ],
-}
 
 const LAB_REFS = {
   'Testosterona Total': { min: 175, max: 781,  unit: 'ng/dL', alert: 'high' },
