@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { dbSelect, dbInsert, dbUpdate, dbDelete, USER_ID } from './lib/supabaseClient'
-import { SPLIT,EXERCISES } from './lib/constants'
+import { SPLIT, EXERCISES } from './lib/constants.js'
 
 // ─── ID generator ─────────────────────────────────────────────────────────────
 const genId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
