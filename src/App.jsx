@@ -1,86 +1,93 @@
-import React, { useState } from 'react';
-import {
-  Dumbbell, Play, History, User, TrendingUp, Calendar,
-  ChevronRight, Clock, LayoutDashboard, Plus
-} from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts'
+import { LucideDumbbell, LucideUtensils, LucideActivity, LucideUser, LucidePlus, LucideCheckCircle2, LucideTimer, LucideTrendingUp, LucideCalendar, LucideChevronRight, LucideX, LucideDroplets, LucideScale, LucideCamera } from 'lucide-react'
+import { dbSelect, dbInsert, dbUpdate, dbDelete, USER_ID } from './lib/supabaseClient'
 
-const GlobalStyles = () => (
-  <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
-    body { margin: 0; font-family: 'Inter', sans-serif; background-color: #0a0a0a; color: #ffffff; }
-    .glass-card { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 24px; }
-    .btn-primary { background: #39FF14; color: #000; font-weight: 800; transition: all 0.2s ease; box-shadow: 0 0 20px rgba(57, 255, 20, 0.2); border: none; cursor: pointer; }
-    .btn-primary:hover { transform: scale(1.02); box-shadow: 0 0 30px rgba(57, 255, 20, 0.4); }
-    .nav-item { color: #666; cursor: pointer; }
-    .nav-item.active { color: #39FF14; }
-    .stat-value { font-size: 24px; font-weight: 800; }
-  `}</style>
-);
+const genId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
 
-const App = () => {
-  const [activeTab, setActiveTab] = useState('home');
+// ─── TEMA NEON (AQUI ESTÃO AS CORES QUE VOCÊ PERGUNTOU) ────────────────────────
+const T = {
+  bg: '#000000',
+  surface: '#0A0A0A',
+  card: 'rgba(20, 20, 20, 0.7)',
+  border: 'rgba(255, 255, 255, 0.08)',
+  accent: '#18FF5B', // Verde Neon para Treino
+  text: '#FFFFFF',
+  muted: '#888888',
+  treino: '#18FF5B',
+  nutri: '#FF8C5A', // Laranja para Dieta
+  horm: '#60B4FF',  // Azul para Saúde
+  metrica: '#D87AE8', // Roxo para Corpo
+  gold: '#FFD166',
+  alert: '#FF5A5A',
+}
 
-  return (
-    <div style={{ minHeight: '100vh', paddingBottom: '100px' }}>
-      <GlobalStyles />
-      <header style={{ padding: '40px 24px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <h1 style={{ fontSize: '32px', fontWeight: 800, margin: 0 }}>FOCO TOTAL</h1>
-          <p style={{ color: '#888', margin: '4px 0 0', fontSize: '14px' }}>Segunda-feira, 8 de Maio</p>
-        </div>
-        <div className="glass-card" style={{ padding: '10px', borderRadius: '50%' }}><User size={24} /></div>
-      </header>
+// ─── SEUS DADOS ORIGINAIS (EXERCÍCIOS, DIETA, PROTOCOLO) ─────────────────────
+const SPLIT = [
+  { id: 'legs', label: 'Legs', tag: 'Quad · Post · Glúteo', color: T.treino, emoji: '🦵', day: 'Seg' },
+  { id: 'push_a', label: 'Push A', tag: 'Peito · Ombro · Tríceps', color: '#A8E870', emoji: '💪', day: 'Ter' },
+  { id: 'pull_a', label: 'Pull A', tag: 'Costas · Bíceps', color: T.horm, emoji: '🔵', day: 'Qua' },
+  { id: 'off', label: 'Futebol', tag: 'Descanso ativo', color: T.muted, emoji: '⚽', day: 'Qui' },
+  { id: 'push_b', label: 'Push B', tag: 'Peito · Ombro · Tríceps', color: '#A8E870', emoji: '💪', day: 'Sex' },
+  { id: 'arms', label: 'Braço+Peito', tag: 'Bíceps · Tríceps · Peito', color: T.nutri, emoji: '💪', day: 'Sáb' },
+  { id: 'pull_b', label: 'Pull B', tag: 'Costas · Bíceps', color: T.horm, emoji: '🔵', day: 'Dom' },
+]
 
-      <section style={{ padding: '0 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
-        <div className="glass-card" style={{ padding: '20px' }}>
-          <TrendingUp size={20} color="#39FF14" style={{ marginBottom: '12px' }} />
-          <div className="stat-value">12.4k</div>
-          <div style={{ fontSize: '10px', color: '#666' }}>VOLUME TOTAL (KG)</div>
-        </div>
-        <div className="glass-card" style={{ padding: '20px' }}>
-          <Calendar size={20} color="#39FF14" style={{ marginBottom: '12px' }} />
-          <div className="stat-value">18</div>
-          <div style={{ fontSize: '10px', color: '#666' }}>TREINOS NO MÊS</div>
-        </div>
-      </section>
+const EXERCISES = {
+  legs: [
+    { name: 'Agachamento Livre', sets: 4, reps: '6–8', rest: 180, muscle: 'Quad', cue: 'Abaixo do paralelo.' },
+    { name: 'Leg Press 45°', sets: 3, reps: '10–12', rest: 120, muscle: 'Quad', cue: 'Não trave o joelho.' },
+    { name: 'Stiff Barra', sets: 4, reps: '8–10', rest: 120, muscle: 'Post.', cue: 'Quadril para trás.' },
+  ],
+  push_a: [
+    { name: 'Supino Reto Barra', sets: 4, reps: '6–8', rest: 150, muscle: 'Peito', cue: 'Escápulas retraídas.' },
+    { name: 'Desenvolvimento Militar', sets: 4, reps: '6–8', rest: 150, muscle: 'Ombro', cue: 'Core contraído.' },
+  ],
+  // ... (As outras listas serão mantidas na versão final)
+}
 
-      <section style={{ padding: '0 24px' }}>
-        <button className="btn-primary" style={{ width: '100%', padding: '20px', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', fontSize: '16px' }}>
-          <Play fill="black" size={20} /> INICIAR TREINO
-        </button>
-      </section>
+const DIET = [
+  { id: 'cafe', time: '06:30', label: 'Café da Manhã', kcal: 470, prot: 36, options: ['1 whey + 30g aveia + ½ banana'] },
+  { id: 'almoco', time: '12:30', label: 'Almoço', kcal: 450, prot: 45, options: ['150g frango + 40g arroz + 60g batata'] },
+]
 
-      <section style={{ padding: '32px 24px 0' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
-          <h2 style={{ fontSize: '18px', fontWeight: 700 }}>Últimas Atividades</h2>
-          <span style={{ color: '#39FF14', fontSize: '14px' }}>Ver todos</span>
-        </div>
-        {[
-          { name: 'Push Day - Peito', duration: '54min', icon: <Dumbbell size={18} /> },
-          { name: 'Leg Day Killer', duration: '1h 10min', icon: <History size={18} /> }
-        ].map((item, i) => (
-          <div key={i} className="glass-card" style={{ padding: '16px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <div style={{ background: 'rgba(57, 255, 20, 0.1)', padding: '10px', borderRadius: '12px', color: '#39FF14' }}>{item.icon}</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600 }}>{item.name}</div>
-              <div style={{ fontSize: '12px', color: '#666' }}>{item.duration} • Ontem</div>
-            </div>
-            <ChevronRight size={18} color="#444" />
-          </div>
-        ))}
-      </section>
+// ─── COMPONENTES VISUAIS (ESTILO VIDRO) ──────────────────────────────────────
+const Card = ({ children, color, onClick }) => (
+  <div onClick={onClick} style={{
+    background: T.card, backdropFilter: 'blur(12px)',
+    border: `1px solid ${T.border}`, borderRadius: 24, padding: '20px',
+    marginBottom: 12, borderLeft: color ? `4px solid ${color}` : `1px solid ${T.border}`,
+    cursor: onClick ? 'pointer' : 'default', transition: 'all 0.2s ease'
+  }}>{children}</div>
+)
 
-      <nav style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: '80px', background: 'rgba(10, 10, 10, 0.9)', backdropFilter: 'blur(20px)', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-around', alignItems: 'center', zIndex: 1000 }}>
-        <div className={`nav-item ${activeTab === 'home' ? 'active' : ''}`} onClick={() => setActiveTab('home')}><LayoutDashboard size={24} /></div>
-        <div className="nav-item">
-          <div style={{ background: '#39FF14', color: '#000', padding: '12px', borderRadius: '50%', marginTop: '-40px', boxShadow: '0 8px 20px rgba(57, 255, 20, 0.3)', border: '4px solid #0a0a0a' }}>
-            <Plus size={28} strokeWidth={3} />
-          </div>
-        </div>
-        <div className={`nav-item ${activeTab === 'profile' ? 'active' : ''}`} onClick={() => setActiveTab('profile')}><User size={24} /></div>
-      </nav>
-    </div>
-  );
-};
+const Btn = ({ children, onClick, color, full, icon: Icon }) => (
+  <button onClick={onClick} style={{
+    background: color || T.accent, color: '#000', border: 'none', borderRadius: 16,
+    padding: '16px 24px', fontSize: 14, fontWeight: 800, width: full ? '100%' : 'auto',
+    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10
+  }}>
+    {Icon && <Icon size={18} />} {children}
+  </button>
+)
 
-export default App;
+// ─── INÍCIO DO APP E LOGICA DO SUPABASE ──────────────────────────────────────
+export default function App() {
+  const [tab, setTab] = useState('dash');
+  const [syncMsg, setSyncMsg] = useState('Conectando...');
+  const [workoutLogs, setWorkoutLogs] = useState([]);
+  const [metrics, setMetrics] = useState([]);
+
+  useEffect(() => {
+    Promise.all([dbSelect('workout_logs'), dbSelect('body_metrics')])
+      .then(([wl, bm]) => {
+        setWorkoutLogs(wl);
+        setMetrics(bm.length > 0 ? bm : [{ weight: '91.5', date: '02/05/2026' }]);
+        setSyncMsg('● Online');
+      }).catch(() => setSyncMsg('⚠ Offline'));
+  }, []);
+
+  const todayIdx = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
+  const todaySession = SPLIT[todayIdx];
+
+  // (Continua na Parte 2...)
