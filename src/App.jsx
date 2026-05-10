@@ -48,25 +48,67 @@ const DEFAULT_SUPLS = [
 
 const GlobalStyles = () => (
   <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Barlow:wght@400;600;700;800;900&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,600;0,700;0,800;0,900;1,900&display=swap');
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; background: ${T.bg}; }
     ::-webkit-scrollbar { display: none; }
     body { -webkit-font-smoothing: antialiased; }
     input, textarea, button, select { font-family: 'Barlow','Lato',sans-serif; }
     input::placeholder, textarea::placeholder { color: ${T.muted}; }
-    @keyframes fadeUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
-    .fade-up { animation: fadeUp .25s ease forwards; }
-    .btn-neon { transition: all .2s; }
-    .btn-neon:hover { box-shadow: 0 0 20px rgba(200,240,96,.4); transform: translateY(-1px); }
-    .btn-ghost { transition: all .2s; }
-    .btn-ghost:hover { background: rgba(200,240,96,.07) !important; }
-    .card-tap { transition: all .2s; }
+
+    @keyframes fadeUp   { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes pulse    { 0%,100%{opacity:1} 50%{opacity:.4} }
+    @keyframes glow     { 0%,100%{opacity:.7} 50%{opacity:1} }
+    @keyframes shimmer  { 0%{background-position:-200% center} 100%{background-position:200% center} }
+    @keyframes scaleIn  { from{transform:scale(.94);opacity:0} to{transform:scale(1);opacity:1} }
+
+    .fade-up    { animation: fadeUp .3s cubic-bezier(.16,1,.3,1) forwards; }
+    .scale-in   { animation: scaleIn .2s ease forwards; }
+
+    .btn-neon   { transition: all .2s cubic-bezier(.16,1,.3,1); }
+    .btn-neon:hover  { box-shadow: 0 0 28px rgba(200,240,96,.5), 0 4px 16px rgba(0,0,0,.4); transform: translateY(-2px); }
+    .btn-neon:active { transform: scale(.97); }
+
+    .btn-ghost  { transition: all .2s; }
+    .btn-ghost:hover { background: rgba(200,240,96,.08) !important; }
+
+    .card-tap   { transition: transform .15s ease, box-shadow .2s ease; }
+    .card-tap:hover  { box-shadow: 0 8px 32px rgba(0,0,0,.35); transform: translateY(-1px); }
     .card-tap:active { transform: scale(.98); }
-    .glass { background: rgba(16,16,20,0.82); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid rgba(255,255,255,0.06); }
-    .glass-nav { background: rgba(10,10,11,0.90); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-top: 1px solid rgba(255,255,255,0.06); }
+
+    .glass {
+      background: rgba(14,14,18,0.88);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+    }
+    .glass-nav {
+      background: rgba(8,8,10,0.93);
+      backdrop-filter: blur(28px) saturate(160%);
+      -webkit-backdrop-filter: blur(28px) saturate(160%);
+      border-top: 1px solid rgba(255,255,255,0.07);
+    }
+
     .active-pulse { animation: pulse 2s infinite; }
+    .glow-pulse   { animation: glow 2.5s ease-in-out infinite; }
+
+    .nav-btn { transition: all .2s cubic-bezier(.34,1.56,.64,1); }
+    .nav-btn:hover  { transform: translateY(-2px); }
+    .nav-btn:active { transform: scale(.9); }
+
+    .brand-title {
+      background: linear-gradient(135deg, ${T.treino} 0%, #A8E870 50%, ${T.treino} 100%);
+      background-size: 200% auto;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: shimmer 3s linear infinite;
+    }
+
+    .progress-bar-fill { transition: width 1.2s cubic-bezier(.16,1,.3,1); }
+    .stat-card { transition: all .2s ease; }
+    .stat-card:hover { border-color: rgba(200,240,96,.2) !important; transform: translateY(-1px); }
+
     select option { background: ${T.card}; color: ${T.text}; }
   `}</style>
 )
@@ -614,19 +656,23 @@ export default function App() {
       {showWorkoutStart && <WorkoutStartModal todaySession={todaySession} onStart={startWorkout} onClose={() => setShowWorkoutStart(false)} />}
       {workoutMode && <WorkoutMode session={workoutMode.session} exercises={workoutMode.exercises} onClose={() => { setWorkoutMode(null); setActiveWO(null); clearAW() }} onSave={addWorkout} onCardioSave={handleCardioSave} />}
 
-      {/* HEADER — Atlas Fitness maior, nome menor */}
-      <div className="glass" style={{ padding: '48px 24px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 50 }}>
+      {/* HEADER PREMIUM */}
+      <div className="glass" style={{ padding: '52px 24px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 50 }}>
         <div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: T.treino, letterSpacing: -.5, lineHeight: 1 }}>Atlas Fitness</div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginTop: 2, letterSpacing: -.3 }}>{profile.name}</div>
-          <div style={{ fontSize: 10, color: T.muted, marginTop: 2, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
-            <Target size={10} color={T.treino} /> {profile.phase} · até {profile.phaseEnd}
+          <div className="brand-title" style={{ fontSize: 32, fontWeight: 900, letterSpacing: -1.5, lineHeight: 1, fontStyle: 'italic' }}>Atlas Fitness</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginTop: 5, letterSpacing: -.2, opacity: .9 }}>{profile.name}</div>
+          <div style={{ fontSize: 10, color: T.muted, marginTop: 3, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 5, height: 5, borderRadius: '50%', background: T.treino, boxShadow: `0 0 6px ${T.treino}` }} />
+            {profile.phase} · até {profile.phaseEnd}
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           {syncMsg && <div style={{ fontSize: 9, color: syncMsg.includes('Online') ? T.ok : T.muted, fontWeight: 700, letterSpacing: 1 }}>{syncMsg}</div>}
-          <div onClick={() => setTab('perfil')} style={{ width: 46, height: 46, borderRadius: '50%', background: profile.photo ? 'transparent' : `linear-gradient(135deg,${T.treino},#8BC34A)`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.bg, fontWeight: 900, fontSize: 16, boxShadow: `0 0 16px ${T.treino}40`, cursor: 'pointer', overflow: 'hidden', border: `2px solid ${T.treino}40` }}>
-            {profile.photo ? <img src={profile.photo} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : profile.name[0]}
+          <div onClick={() => setTab('perfil')} style={{ position: 'relative', cursor: 'pointer' }}>
+            <div style={{ width: 54, height: 54, borderRadius: '50%', background: profile.photo ? 'transparent' : `linear-gradient(135deg,${T.treino} 0%,#6BCF00 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.bg, fontWeight: 900, fontSize: 20, overflow: 'hidden', border: `2.5px solid ${T.treino}60`, boxShadow: `0 0 20px ${T.treino}35, 0 4px 16px rgba(0,0,0,.5)` }}>
+              {profile.photo ? <img src={profile.photo} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : profile.name[0]}
+            </div>
+            <div style={{ position: 'absolute', bottom: 2, right: 2, width: 12, height: 12, borderRadius: '50%', background: T.ok, border: `2px solid ${T.bg}`, boxShadow: `0 0 6px ${T.ok}` }} />
           </div>
         </div>
       </div>
