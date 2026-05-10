@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import {
-  Dumbbell, Utensils, Heart, Activity, Image, Home,
+  Dumbbell, Utensils, Heart, Activity, Home,
   Flame, ChevronRight, CheckCircle, Syringe, FlaskConical,
   TrendingUp, TrendingDown, Minus, Play, SkipForward, X,
   ChevronLeft, Scale, Zap, Target, Clock, RotateCcw,
   Fish, Sun, Camera, FolderOpen, ArrowRight,
   AlertTriangle, CheckCheck, Trophy, Timer, Calendar, Pause, Pill,
-  User, Upload, BarChart2, RefreshCw, Plus
+  User, Upload, BarChart2, RefreshCw, Plus, Edit2, Trash2, Image,
+  ZoomIn, ZoomOut, Move
 } from 'lucide-react'
 import { dbSelect, dbInsert, dbUpdate, dbDelete, USER_ID } from './lib/supabaseClient'
 
@@ -19,6 +20,16 @@ const getAW = () => { try { return JSON.parse(localStorage.getItem(AW_KEY)) } ca
 const saveAW = (d) => localStorage.setItem(AW_KEY, JSON.stringify(d))
 const clearAW = () => localStorage.removeItem(AW_KEY)
 
+// ─── PROFILE PERSISTENCE (localStorage como cache, Supabase como fonte) ───────
+const PROFILE_KEY = 'atlas_profile'
+const getProfileCache = () => { try { return JSON.parse(localStorage.getItem(PROFILE_KEY)) } catch { return null } }
+const saveProfileCache = (d) => localStorage.setItem(PROFILE_KEY, JSON.stringify(d))
+
+// ─── SUPLS PERSISTENCE ────────────────────────────────────────────────────────
+const SUPLS_KEY = 'atlas_supls'
+const getSuplsCache = () => { try { const d = JSON.parse(localStorage.getItem(SUPLS_KEY)); return d && d.length > 0 ? d : null } catch { return null } }
+const saveSuplsCache = (d) => localStorage.setItem(SUPLS_KEY, JSON.stringify(d))
+
 // ─── THEME ────────────────────────────────────────────────────────────────────
 const T = {
   bg: '#0A0A0B', surface: '#0F0F12', card: '#16161A', border: '#1E1E24',
@@ -27,6 +38,13 @@ const T = {
   treino: '#C8F060', nutri: '#FF8C5A', horm: '#60B4FF', metrica: '#D87AE8',
   ok: '#5AE89A', warn: '#FFB84D', alert: '#FF5A5A', gold: '#FFD166',
 }
+
+const DEFAULT_SUPLS = [
+  { id: 'vitd',  name: 'Vit. D3+K2', dose: '4.000', unit: 'UI',  time: 'Manhã',      obs: '', color: T.warn   },
+  { id: 'b12',   name: 'Vit. B12',   dose: '1.000', unit: 'mcg', time: 'Manhã',      obs: '', color: T.warn   },
+  { id: 'creat', name: 'Creatina',   dose: '5',     unit: 'g',   time: 'Pós-treino', obs: '', color: T.treino },
+  { id: 'omega', name: 'Ômega 3',    dose: '3',     unit: 'g',   time: 'Almoço',     obs: '', color: T.horm   },
+]
 
 const GlobalStyles = () => (
   <style>{`
@@ -156,13 +174,6 @@ const PROTOCOL_COMPOUNDS = [
   { id: 'tirze', name: 'Tirzepatida',           dose: '1.5', unit: 'mg', schedule: 'Semanal',   color: T.nutri,   weekly: '1.5mg' },
 ]
 
-const SUPLS = [
-  { id: 'vitd',  name: 'Vit. D3+K2', dose: '4.000 UI', time: 'Manhã',      color: T.warn,   Icon: Sun   },
-  { id: 'b12',   name: 'Vit. B12',   dose: '1.000mcg', time: 'Manhã',      color: T.warn,   Icon: Zap   },
-  { id: 'creat', name: 'Creatina',   dose: '5g',        time: 'Pós-treino', color: T.treino, Icon: Flame },
-  { id: 'omega', name: 'Ômega 3',    dose: '3g',        time: 'Almoço',     color: T.horm,   Icon: Fish  },
-]
-
 // ─── BASE COMPONENTS ──────────────────────────────────────────────────────────
 const Card = ({ children, style = {}, color, onClick }) => (
   <div onClick={onClick} className={onClick ? 'card-tap' : ''} style={{ background: T.card, border: `1px solid ${color ? color + '28' : T.border}`, borderRadius: 22, padding: '20px', marginBottom: 12, borderLeft: color ? `3px solid ${color}` : undefined, cursor: onClick ? 'pointer' : 'default', overflow: 'hidden', ...style }}>{children}</div>
@@ -191,8 +202,64 @@ function ConfirmDialog({ message, onConfirm, onCancel }) {
         <div style={{ fontSize: 14, color: T.text, marginBottom: 28, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{message}</div>
         <div style={{ display: 'flex', gap: 10 }}>
           <Btn full ghost color={T.muted} onClick={onCancel} small>Cancelar</Btn>
-          <Btn full color={T.alert} onClick={onConfirm} small style={{ color: '#fff' }}>Deletar</Btn>
+          <Btn full color={T.alert} onClick={onConfirm} small style={{ color: '#fff' }}>Confirmar</Btn>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── AVATAR CROP EDITOR ───────────────────────────────────────────────────────
+function AvatarCropEditor({ src, onSave, onCancel }) {
+  const [zoom, setZoom] = useState(1)
+  const [pos, setPos] = useState({ x: 0, y: 0 })
+  const dragging = useRef(false)
+  const lastPos = useRef({ x: 0, y: 0 })
+  const canvasRef = useRef(null)
+
+  const onMouseDown = (e) => { dragging.current = true; lastPos.current = { x: e.clientX - pos.x, y: e.clientY - pos.y } }
+  const onMouseMove = (e) => { if (!dragging.current) return; setPos({ x: e.clientX - lastPos.current.x, y: e.clientY - lastPos.current.y }) }
+  const onMouseUp = () => { dragging.current = false }
+  const onTouchStart = (e) => { dragging.current = true; lastPos.current = { x: e.touches[0].clientX - pos.x, y: e.touches[0].clientY - pos.y } }
+  const onTouchMove = (e) => { if (!dragging.current) return; setPos({ x: e.touches[0].clientX - lastPos.current.x, y: e.touches[0].clientY - lastPos.current.y }) }
+
+  const handleSave = () => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 300; canvas.height = 300
+    const ctx = canvas.getContext('2d')
+    ctx.beginPath(); ctx.arc(150, 150, 150, 0, Math.PI * 2); ctx.clip()
+    const img = new window.Image(); img.src = src
+    img.onload = () => {
+      const size = Math.min(img.width, img.height) * zoom
+      const sx = (img.width / 2) - (size / 2) - (pos.x / zoom)
+      const sy = (img.height / 2) - (size / 2) - (pos.y / zoom)
+      ctx.drawImage(img, sx, sy, size, size, 0, 0, 300, 300)
+      onSave(canvas.toDataURL('image/jpeg', 0.85))
+    }
+  }
+
+  const SIZE = 260
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.96)', zIndex: 500, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div style={{ fontSize: 16, fontWeight: 800, color: T.text, marginBottom: 6 }}>Ajustar foto</div>
+      <div style={{ fontSize: 11, color: T.muted, marginBottom: 20 }}>Arraste para reposicionar · Zoom para ajustar</div>
+
+      <div style={{ position: 'relative', width: SIZE, height: SIZE, borderRadius: '50%', overflow: 'hidden', border: `3px solid ${T.treino}`, cursor: 'grab', userSelect: 'none', marginBottom: 24 }}
+        onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
+        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onMouseUp}>
+        <img src={src} draggable={false} style={{ position: 'absolute', width: `${100 * zoom}%`, height: `${100 * zoom}%`, left: `${50 - 50 * zoom + pos.x}px`, top: `${50 - 50 * zoom + pos.y}px`, objectFit: 'cover', pointerEvents: 'none', maxWidth: 'none' }} />
+        <div style={{ position: 'absolute', inset: 0, border: `2px dashed ${T.treino}60`, borderRadius: '50%', pointerEvents: 'none' }} />
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24, width: '100%', maxWidth: 260 }}>
+        <ZoomOut size={16} color={T.muted} />
+        <input type="range" min={1} max={3} step={0.05} value={zoom} onChange={e => setZoom(parseFloat(e.target.value))} style={{ flex: 1, accentColor: T.treino }} />
+        <ZoomIn size={16} color={T.muted} />
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, width: '100%', maxWidth: 260 }}>
+        <Btn full ghost color={T.muted} onClick={onCancel} small>Cancelar</Btn>
+        <Btn full color={T.treino} onClick={handleSave} small>Salvar Foto</Btn>
       </div>
     </div>
   )
@@ -215,8 +282,7 @@ function CardioModal({ onSave, onSkip }) {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
           <div><Lbl>Duração (min)</Lbl><Inp type="number" placeholder="25" value={duracao} onChange={setDuracao} style={{ width: '100%' }} /></div>
-          <div>
-            <Lbl>Zona</Lbl>
+          <div><Lbl>Zona</Lbl>
             <select value={zona} onChange={e => setZona(e.target.value)} style={{ width: '100%', background: T.faint, border: `1px solid ${T.border2}`, borderRadius: 12, padding: '12px 14px', fontSize: 13, color: T.text, outline: 'none', fontFamily: 'inherit' }}>
               <option value="1">Zona 1 — Leve</option>
               <option value="2">Zona 2 — Moderado</option>
@@ -228,6 +294,40 @@ function CardioModal({ onSave, onSkip }) {
           <Btn full ghost color={T.muted} onClick={onSkip} small>Não fiz</Btn>
           <Btn full color={T.treino} onClick={() => onSave({ tipo, duracao: parseInt(duracao), zona: parseInt(zona) })} small>Salvar Cardio</Btn>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── WORKOUT START MODAL (escolha ANTES de iniciar) ───────────────────────────
+function WorkoutStartModal({ todaySession, onStart, onClose }) {
+  const [selected, setSelected] = useState(todaySession?.id !== 'off' ? todaySession?.id : null)
+  const chosen = SPLIT.find(s => s.id === selected)
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.94)', zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: T.card, border: `1px solid ${T.border2}`, borderRadius: 28, padding: '28px 24px', width: '100%', maxWidth: 440, maxHeight: '85vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: -1, color: T.text }}>Iniciar Treino</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: T.muted, cursor: 'pointer' }}><X size={20} /></button>
+        </div>
+        <Lbl>Escolha o treino</Lbl>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+          {SPLIT.filter(s => s.id !== 'off').map(s => (
+            <button key={s.id} onClick={() => setSelected(s.id)} style={{ background: selected === s.id ? s.color + '20' : T.faint, border: `2px solid ${selected === s.id ? s.color : T.border2}`, borderRadius: 16, padding: '14px 16px', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', transition: 'all .2s', display: 'flex', alignItems: 'center', gap: 14 }}>
+              <span style={{ fontSize: 24 }}>{s.icon}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: selected === s.id ? s.color : T.text }}>{s.label}</div>
+                <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{s.tag} · {EXERCISES[s.id]?.length || 0} exercícios</div>
+              </div>
+              {s.id === todaySession?.id && <Tag color={s.color} small>Hoje</Tag>}
+              {selected === s.id && <CheckCircle size={18} color={s.color} />}
+            </button>
+          ))}
+        </div>
+        <Btn full color={chosen?.color || T.treino} style={{ color: T.bg, fontSize: 15, padding: '16px' }} disabled={!selected}
+          onClick={() => { if (chosen) onStart(chosen, EXERCISES[chosen.id] || []) }}>
+          <Play size={16} fill={T.bg} /> Iniciar {chosen?.label || ''}
+        </Btn>
       </div>
     </div>
   )
@@ -262,7 +362,7 @@ function RestTimer({ seconds, onDone }) {
   )
 }
 
-// ─── WORKOUT MODE (com persistência + troca de exercício + cardio modal) ──────
+// ─── WORKOUT MODE ─────────────────────────────────────────────────────────────
 function WorkoutMode({ session, exercises: initialExercises, onClose, onSave, onCardioSave }) {
   const saved_aw = getAW()
   const [idx, setIdx] = useState(saved_aw?.idx || 0)
@@ -282,7 +382,6 @@ function WorkoutMode({ session, exercises: initialExercises, onClose, onSave, on
   const isCardio = ex?.name?.includes('Cardio')
   const totalSets = typeof ex?.sets === 'number' ? ex.sets : parseInt(ex?.sets) || 1
 
-  // Persistir estado
   useEffect(() => {
     if (phase !== 'done') saveAW({ idx, setIdx2, phase, kg, reps, saved, exercises, sessionId: session.id, sessionLabel: session.label })
   }, [idx, setIdx2, phase, kg, reps, saved, exercises])
@@ -296,8 +395,7 @@ function WorkoutMode({ session, exercises: initialExercises, onClose, onSave, on
 
   const doSwap = () => {
     if (!swapName) return
-    const newEx = [...exercises]
-    newEx[idx] = { ...newEx[idx], originalName: newEx[idx].name, name: swapName }
+    const newEx = [...exercises]; newEx[idx] = { ...newEx[idx], originalName: newEx[idx].name, name: swapName }
     setExercises(newEx)
     onSave({ exercise: `[TROCA] ${ex.name} → ${swapName}`, kg: '0', reps: swapReason || 'troca', date: new Date().toLocaleDateString('pt-BR'), day: session.id })
     setShowSwap(false); setSwapName(''); setSwapReason('')
@@ -335,8 +433,6 @@ function WorkoutMode({ session, exercises: initialExercises, onClose, onSave, on
           <button onClick={onClose} style={{ background: T.subtle, border: 'none', color: T.muted, cursor: 'pointer', fontSize: 12, padding: '8px 14px', borderRadius: 10, fontFamily: 'inherit', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}><X size={14} /> SAIR</button>
           <div style={{ fontSize: 12, color: T.muted, fontWeight: 700 }}>{idx + 1}/{exercises.length}</div>
         </div>
-
-        {/* Swap modal */}
         {showSwap && (
           <div style={{ background: T.surface, border: `1px solid ${T.border2}`, borderRadius: 18, padding: '20px', marginBottom: 20 }}>
             <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 12, color: T.warn }}>Trocar exercício</div>
@@ -348,22 +444,18 @@ function WorkoutMode({ session, exercises: initialExercises, onClose, onSave, on
             </div>
           </div>
         )}
-
         <Tag color={session.color} small>{ex.muscle}</Tag>
         <div style={{ fontSize: 28, fontWeight: 900, color: T.text, marginTop: 10, marginBottom: 2, lineHeight: 1.1, letterSpacing: -1 }}>
           {ex.originalName && <div style={{ fontSize: 10, color: T.warn, marginBottom: 4 }}>Substituiu: {ex.originalName}</div>}
           {ex.name}
         </div>
         <div style={{ fontSize: 13, color: T.muted, marginBottom: 20, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}><Timer size={13} /> Série {setIdx2 + 1} de {totalSets}</div>
-
         <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
           {Array.from({ length: totalSets }, (_, i) => (
             <div key={i} style={{ width: 38, height: 38, borderRadius: '50%', border: `2px solid ${i < setIdx2 ? session.color : i === setIdx2 ? session.color : T.border2}`, background: i < setIdx2 ? session.color : i === setIdx2 ? session.color + '20' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: i < setIdx2 ? T.bg : i === setIdx2 ? session.color : T.muted, boxShadow: i === setIdx2 ? `0 0 10px ${session.color}60` : 'none' }}>{i + 1}</div>
           ))}
         </div>
-
         <div style={{ background: T.faint, borderLeft: `3px solid ${session.color}`, borderRadius: '0 14px 14px 0', padding: '12px 16px', marginBottom: 20, fontSize: 12, color: T.muted, lineHeight: 1.8 }}>💡 {ex.cue}</div>
-
         <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
           {[{ l: 'Reps alvo', v: ex.reps, Icon: Target }, { l: 'Pausa', v: ex.rest > 0 ? `${ex.rest}s` : '—', Icon: Clock }].map(s => (
             <div key={s.l} style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, padding: '16px', textAlign: 'center' }}>
@@ -373,7 +465,6 @@ function WorkoutMode({ session, exercises: initialExercises, onClose, onSave, on
             </div>
           ))}
         </div>
-
         {!isCardio && (
           <>
             <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
@@ -383,18 +474,12 @@ function WorkoutMode({ session, exercises: initialExercises, onClose, onSave, on
             <Inp placeholder="Observação (opcional)" value={obs} onChange={setObs} style={{ width: '100%', marginBottom: 16, fontSize: 12 }} />
           </>
         )}
-
         <Btn full color={session.color} style={{ fontSize: 15, padding: '16px', borderRadius: 16, letterSpacing: 1 }} onClick={nextSet}>
           {setIdx2 + 1 < totalSets ? 'PRÓXIMA SÉRIE →' : idx + 1 < exercises.length ? 'PRÓXIMO EXERCÍCIO →' : 'FINALIZAR 🔥'}
         </Btn>
-
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 14 }}>
-          <button onClick={() => setShowSwap(true)} style={{ background: 'none', border: 'none', color: T.warn, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}>
-            <RefreshCw size={12} /> Trocar exercício
-          </button>
-          <button onClick={() => { setIdx(i => Math.min(i + 1, exercises.length - 1)); setSetIdx(0); setPhase('exercise') }} style={{ background: 'none', border: 'none', color: T.muted, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}>
-            <SkipForward size={12} /> Pular
-          </button>
+          <button onClick={() => setShowSwap(true)} style={{ background: 'none', border: 'none', color: T.warn, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}><RefreshCw size={12} /> Trocar exercício</button>
+          <button onClick={() => { setIdx(i => Math.min(i + 1, exercises.length - 1)); setSetIdx(0); setPhase('exercise') }} style={{ background: 'none', border: 'none', color: T.muted, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}><SkipForward size={12} /> Pular</button>
         </div>
       </div>
     </div>
@@ -426,11 +511,13 @@ export default function App() {
   const [confirm, setConfirm] = useState(null)
   const [syncMsg, setSyncMsg] = useState('Carregando...')
   const [workoutMode, setWorkoutMode] = useState(null)
+  const [showWorkoutStart, setShowWorkoutStart] = useState(false)
 
-  // Perfil
-  const [profile, setProfile] = useState({ name: 'Thomas', age: 35, weight: '91.5', height: '1.75', phase: 'Fase 1 — Cutting', phaseEnd: 'Jul 2026', bfMeta: '12', photo: null, goal: 'Cutting', gender: 'M', birthDate: '' })
+  const defaultProfile = { name: 'Thomas', weight: '91.5', height: '1.75', phase: 'Fase 1 — Cutting', phaseEnd: 'Jul 2026', bfMeta: '12', photo: null, goal: 'Cutting', gender: 'M', birthDate: '' }
+  const [profile, setProfileState] = useState(() => getProfileCache() || defaultProfile)
   const [nutrition] = useState({ calories: 2100, protein: 190, carbs: 160, fat: 58 })
   const [compounds, setCompounds] = useState(PROTOCOL_COMPOUNDS)
+  const [supls, setSupls] = useState(() => getSuplsCache() || DEFAULT_SUPLS)
 
   const [workout,    setWorkout]    = useState([])
   const [metrics,    setMetrics]    = useState([])
@@ -441,9 +528,9 @@ export default function App() {
   const [photos,     setPhotos]     = useState([])
   const [suplLogs,   setSuplLogs]   = useState([])
   const [cardioLogs, setCardioLogs] = useState([])
+  const [activeWO,   setActiveWO]   = useState(getAW())
 
-  // Treino ativo persistente
-  const [activeWO, setActiveWO] = useState(getAW())
+  const setProfile = (p) => { setProfileState(p); saveProfileCache(p) }
 
   const flash = (msg = '✓ Salvo') => { setSyncMsg(msg); setTimeout(() => setSyncMsg(''), 2500) }
 
@@ -470,22 +557,23 @@ export default function App() {
     setConfirm({ message: `Deletar "${label}"?\nEsta ação não pode ser desfeita.`, onConfirm: async () => { setConfirm(null); setter(prev => prev.filter(x => x.id !== id)); await dbDelete(table, id); flash('🗑 Deletado') } })
   }, [])
 
-  const addWorkout    = d      => add('workout_logs', setWorkout, d)
-  const editWorkout   = (id,d) => edit('workout_logs', setWorkout, id, d)
-  const removeWorkout = (id,l) => remove('workout_logs', setWorkout, id, l)
-  const addMetric     = d      => add('body_metrics', setMetrics, d)
-  const editMetric    = (id,d) => edit('body_metrics', setMetrics, id, d)
-  const removeMetric  = (id,l) => remove('body_metrics', setMetrics, id, l)
-  const addMeal       = d      => add('meal_logs', setMealLog, d)
-  const removeMeal    = (id,l) => remove('meal_logs', setMealLog, id, l)
-  const addLab        = d      => add('exames', setLabLog, d)
-  const removeLab     = (id,l) => remove('exames', setLabLog, id, l)
-  const addAplicacao  = d      => add('aplicacoes', setAplicacoes, d)
+  const addWorkout      = d      => add('workout_logs', setWorkout, d)
+  const editWorkout     = (id,d) => edit('workout_logs', setWorkout, id, d)
+  const removeWorkout   = (id,l) => remove('workout_logs', setWorkout, id, l)
+  const addMetric       = d      => add('body_metrics', setMetrics, d)
+  const editMetric      = (id,d) => edit('body_metrics', setMetrics, id, d)
+  const removeMetric    = (id,l) => remove('body_metrics', setMetrics, id, l)
+  const addMeal         = d      => add('meal_logs', setMealLog, d)
+  const removeMeal      = (id,l) => remove('meal_logs', setMealLog, id, l)
+  const addLab          = d      => add('exames', setLabLog, d)
+  const removeLab       = (id,l) => remove('exames', setLabLog, id, l)
+  const addAplicacao    = d      => add('aplicacoes', setAplicacoes, d)
   const removeAplicacao = (id,l) => remove('aplicacoes', setAplicacoes, id, l)
-  const addDietaLog   = d      => add('dieta_logs', setDietaLogs, d)
-  const addPhoto      = d      => add('photos', setPhotos, d)
-  const removePhoto   = id     => remove('photos', setPhotos, id, 'foto')
-  const addCardio     = d      => add('cardio_logs', setCardioLogs, d)
+  const addDietaLog     = d      => add('dieta_logs', setDietaLogs, d)
+  const removeDietaLog  = (id,l) => remove('dieta_logs', setDietaLogs, id, l)
+  const addPhoto        = d      => add('photos', setPhotos, d)
+  const removePhoto     = id     => remove('photos', setPhotos, id, 'foto')
+  const addCardio       = d      => add('cardio_logs', setCardioLogs, d)
 
   const toggleSupl = async (suplId) => {
     const today = new Date().toISOString().slice(0, 10)
@@ -495,19 +583,19 @@ export default function App() {
   }
   const isSuplDone = (id) => { const today = new Date().toISOString().slice(0, 10); return suplLogs.some(s => s.supl_id === id && s.date === today) }
   const saveCompounds = (d) => { setCompounds(d); flash() }
+  const saveSupls = (d) => { setSupls(d); saveSuplsCache(d); flash() }
 
   const todayIdx = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1
   const todaySession = SPLIT[todayIdx]
 
   const startWorkout = (session, exercises) => {
     setWorkoutMode({ session, exercises })
+    setShowWorkoutStart(false)
     saveAW({ idx: 0, setIdx2: 0, phase: 'exercise', kg: '', reps: '', saved: [], exercises, sessionId: session.id, sessionLabel: session.label })
     setActiveWO({ sessionLabel: session.label, sessionColor: session.color })
   }
 
-  const handleCardioSave = (cardioData) => {
-    addCardio({ tipo: cardioData.tipo, duracao_min: cardioData.duracao, zona: cardioData.zona, date: new Date().toISOString().slice(0, 10) })
-  }
+  const handleCardioSave = (d) => addCardio({ tipo: d.tipo, duracao_min: d.duracao, zona: d.zona, date: new Date().toISOString().slice(0, 10) })
 
   const TABS = [
     { id: 'dash',    Icon: Home,     label: 'Início',  color: T.treino  },
@@ -523,28 +611,20 @@ export default function App() {
     <div style={{ minHeight: '100vh', background: T.bg, fontFamily: "'Barlow','Lato',sans-serif", color: T.text, maxWidth: 480, margin: '0 auto', paddingBottom: 90 }}>
       <GlobalStyles />
       {confirm && <ConfirmDialog {...confirm} onCancel={() => setConfirm(null)} />}
-      {workoutMode && (
-        <WorkoutMode
-          session={workoutMode.session}
-          exercises={workoutMode.exercises}
-          onClose={() => { setWorkoutMode(null); setActiveWO(null); clearAW() }}
-          onSave={addWorkout}
-          onCardioSave={handleCardioSave}
-        />
-      )}
+      {showWorkoutStart && <WorkoutStartModal todaySession={todaySession} onStart={startWorkout} onClose={() => setShowWorkoutStart(false)} />}
+      {workoutMode && <WorkoutMode session={workoutMode.session} exercises={workoutMode.exercises} onClose={() => { setWorkoutMode(null); setActiveWO(null); clearAW() }} onSave={addWorkout} onCardioSave={handleCardioSave} />}
 
-      {/* HEADER */}
+      {/* HEADER — Atlas Fitness maior, nome menor */}
       <div className="glass" style={{ padding: '48px 24px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 50 }}>
         <div>
-          <div style={{ fontSize: 13, color: T.treino, fontWeight: 800, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 2 }}>Atlas Fitness</div>
-          <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: -1, lineHeight: 1 }}>{profile.name}</div>
-          <div style={{ fontSize: 11, color: T.muted, marginTop: 3, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Target size={11} color={T.treino} /> {profile.phase} · até {profile.phaseEnd}
+          <div style={{ fontSize: 22, fontWeight: 900, color: T.treino, letterSpacing: -.5, lineHeight: 1 }}>Atlas Fitness</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginTop: 2, letterSpacing: -.3 }}>{profile.name}</div>
+          <div style={{ fontSize: 10, color: T.muted, marginTop: 2, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
+            <Target size={10} color={T.treino} /> {profile.phase} · até {profile.phaseEnd}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {syncMsg && <div style={{ fontSize: 9, color: syncMsg.includes('Online') ? T.ok : T.muted, fontWeight: 700, letterSpacing: 1 }}>{syncMsg}</div>}
-          {/* Avatar com foto */}
           <div onClick={() => setTab('perfil')} style={{ width: 46, height: 46, borderRadius: '50%', background: profile.photo ? 'transparent' : `linear-gradient(135deg,${T.treino},#8BC34A)`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.bg, fontWeight: 900, fontSize: 16, boxShadow: `0 0 16px ${T.treino}40`, cursor: 'pointer', overflow: 'hidden', border: `2px solid ${T.treino}40` }}>
             {profile.photo ? <img src={profile.photo} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : profile.name[0]}
           </div>
@@ -567,10 +647,10 @@ export default function App() {
 
       {/* CONTENT */}
       <div key={tab} className="fade-up" style={{ padding: '16px 20px' }}>
-        {tab === 'dash'    && <DashTab profile={profile} nutrition={nutrition} metrics={metrics} todaySession={todaySession} dietaLogs={dietaLogs} aplicacoes={aplicacoes} workout={workout} isSuplDone={isSuplDone} toggleSupl={toggleSupl} addAplicacao={addAplicacao} cardioLogs={cardioLogs} onStartWorkout={() => { if (todaySession.id !== 'off') startWorkout(todaySession, EXERCISES[todaySession.id] || []) }} />}
-        {tab === 'treino'  && <TreinoTab workout={workout} addItem={addWorkout} editItem={editWorkout} removeItem={removeWorkout} onStartMode={startWorkout} cardioLogs={cardioLogs} />}
-        {tab === 'nutri'   && <NutriTab nutrition={nutrition} mealLog={mealLog} dietaLogs={dietaLogs} addMeal={addMeal} removeMeal={removeMeal} addDietaLog={addDietaLog} />}
-        {tab === 'horm'    && <HormTab labLog={labLog} addLab={addLab} removeLab={removeLab} aplicacoes={aplicacoes} addAplicacao={addAplicacao} removeAplicacao={removeAplicacao} compounds={compounds} saveCompounds={saveCompounds} />}
+        {tab === 'dash'    && <DashTab profile={profile} nutrition={nutrition} metrics={metrics} todaySession={todaySession} dietaLogs={dietaLogs} aplicacoes={aplicacoes} workout={workout} isSuplDone={isSuplDone} toggleSupl={toggleSupl} addAplicacao={addAplicacao} cardioLogs={cardioLogs} supls={supls} onStartWorkout={() => setShowWorkoutStart(true)} />}
+        {tab === 'treino'  && <TreinoTab workout={workout} addItem={addWorkout} editItem={editWorkout} removeItem={removeWorkout} onStartMode={(s, e) => { startWorkout(s, e) }} cardioLogs={cardioLogs} onOpenStartModal={() => setShowWorkoutStart(true)} />}
+        {tab === 'nutri'   && <NutriTab nutrition={nutrition} mealLog={mealLog} dietaLogs={dietaLogs} addMeal={addMeal} removeMeal={removeMeal} addDietaLog={addDietaLog} removeDietaLog={removeDietaLog} />}
+        {tab === 'horm'    && <HormTab labLog={labLog} addLab={addLab} removeLab={removeLab} aplicacoes={aplicacoes} addAplicacao={addAplicacao} removeAplicacao={removeAplicacao} compounds={compounds} saveCompounds={saveCompounds} supls={supls} saveSupls={saveSupls} isSuplDone={isSuplDone} toggleSupl={toggleSupl} />}
         {tab === 'body'    && <BodyTab metrics={metrics} profile={profile} addMetric={addMetric} editMetric={editMetric} removeMetric={removeMetric} photos={photos} addPhoto={addPhoto} removePhoto={removePhoto} />}
         {tab === 'analise' && <AnaliseTab metrics={metrics} workout={workout} cardioLogs={cardioLogs} dietaLogs={dietaLogs} nutrition={nutrition} />}
         {tab === 'perfil'  && <PerfilTab profile={profile} setProfile={setProfile} />}
@@ -584,7 +664,7 @@ export default function App() {
             return (
               <button key={t.id} onClick={() => setTab(t.id)} style={{ background: active ? t.color + '15' : 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '6px 8px', borderRadius: 14, transition: 'all .2s', position: 'relative' }}>
                 {active && <div style={{ position: 'absolute', top: -1, left: '50%', transform: 'translateX(-50%)', width: 20, height: 2, background: t.color, borderRadius: 2, boxShadow: `0 0 8px ${t.color}` }} />}
-                <t.Icon size={18} color={active ? t.color : T.muted} strokeWidth={active ? 2 : 1.5} style={{ transition: 'all .2s' }} />
+                <t.Icon size={18} color={active ? t.color : T.muted} strokeWidth={active ? 2 : 1.5} />
                 <span style={{ fontSize: 7, color: active ? t.color : T.muted, textTransform: 'uppercase', letterSpacing: .8, fontWeight: 800 }}>{t.label}</span>
               </button>
             )
@@ -596,7 +676,7 @@ export default function App() {
 }
 
 // ─── DASH ─────────────────────────────────────────────────────────────────────
-function DashTab({ profile, nutrition, metrics, todaySession, dietaLogs, aplicacoes, workout, isSuplDone, toggleSupl, addAplicacao, cardioLogs, onStartWorkout }) {
+function DashTab({ profile, nutrition, metrics, todaySession, dietaLogs, aplicacoes, workout, isSuplDone, toggleSupl, addAplicacao, cardioLogs, supls, onStartWorkout }) {
   const sorted = [...metrics].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0))
   const last = sorted[sorted.length - 1]
   const today = new Date().toISOString().slice(0, 10)
@@ -606,11 +686,11 @@ function DashTab({ profile, nutrition, metrics, todaySession, dietaLogs, aplicac
   const todayWorkout = workout.filter(w => w.created_at?.slice(0, 10) === today)
   const todayApp = aplicacoes.filter(a => a.date === today || a.created_at?.slice(0, 10) === today)
   const todayCardio = cardioLogs.filter(c => c.date === today || c.created_at?.slice(0, 10) === today)
-  const suplDone = SUPLS.filter(s => isSuplDone(s.id)).length
+  const suplDone = supls.filter(s => isSuplDone(s.id)).length
   const dietaPct  = Math.min(100, Math.round((todayKcal / nutrition.calories) * 100))
   const treinoPct = todaySession?.id === 'off' ? 100 : Math.min(100, todayWorkout.length > 0 ? 100 : 0)
   const protoPct  = Math.min(100, todayApp.length > 0 ? 100 : 0)
-  const suplPct   = Math.round((suplDone / SUPLS.length) * 100)
+  const suplPct   = supls.length > 0 ? Math.round((suplDone / supls.length) * 100) : 0
   const cardioPct = Math.min(100, todayCardio.length > 0 ? 100 : 0)
   const scoreDia  = Math.round((dietaPct + treinoPct + protoPct + suplPct + cardioPct) / 5)
   const scoreColor = scoreDia > 70 ? T.treino : scoreDia > 40 ? T.warn : T.alert
@@ -623,22 +703,20 @@ function DashTab({ profile, nutrition, metrics, todaySession, dietaLogs, aplicac
   return (
     <div>
       {/* TODAY HERO */}
-      <div onClick={todaySession?.id !== 'off' ? onStartWorkout : undefined} className={todaySession?.id !== 'off' ? 'card-tap' : ''}
-        style={{ background: `linear-gradient(135deg,${T.card} 0%,${(todaySession?.color || T.treino) + '12'} 100%)`, border: `1px solid ${(todaySession?.color || T.treino) + '30'}`, borderRadius: 24, padding: '24px', marginBottom: 12, cursor: todaySession?.id !== 'off' ? 'pointer' : 'default' }}>
+      <div onClick={onStartWorkout} className="card-tap"
+        style={{ background: `linear-gradient(135deg,${T.card} 0%,${(todaySession?.color || T.treino) + '12'} 100%)`, border: `1px solid ${(todaySession?.color || T.treino) + '30'}`, borderRadius: 24, padding: '24px', marginBottom: 12, cursor: 'pointer' }}>
         <div style={{ fontSize: 9, color: T.muted, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 10, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}><Calendar size={10} /> Hoje — {todaySession?.day}</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: todaySession?.id !== 'off' ? 16 : 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
           <div style={{ fontSize: 46 }}>{todaySession?.icon}</div>
           <div>
-            <div style={{ fontSize: 30, fontWeight: 900, color: todaySession?.color || T.text, letterSpacing: -1.5, lineHeight: 1 }}>{todaySession?.label}</div>
+            <div style={{ fontSize: 28, fontWeight: 900, color: todaySession?.color || T.text, letterSpacing: -1.5, lineHeight: 1 }}>{todaySession?.label}</div>
             <div style={{ fontSize: 12, color: T.muted, marginTop: 5, fontWeight: 600 }}>{todaySession?.tag}</div>
           </div>
         </div>
-        {todaySession?.id !== 'off' && (
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, background: todaySession?.color || T.treino, borderRadius: 14, padding: '12px 22px', boxShadow: `0 4px 20px ${(todaySession?.color || T.treino)}50` }}>
-            <Play size={14} color={T.bg} fill={T.bg} />
-            <span style={{ fontSize: 13, fontWeight: 900, color: T.bg, letterSpacing: .8 }}>INICIAR TREINO</span>
-          </div>
-        )}
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, background: todaySession?.color || T.treino, borderRadius: 14, padding: '12px 22px', boxShadow: `0 4px 20px ${(todaySession?.color || T.treino)}50` }}>
+          <Play size={14} color={T.bg} fill={T.bg} />
+          <span style={{ fontSize: 13, fontWeight: 900, color: T.bg, letterSpacing: .8 }}>INICIAR TREINO</span>
+        </div>
       </div>
 
       {/* SCORE + STATS */}
@@ -666,12 +744,11 @@ function DashTab({ profile, nutrition, metrics, todaySession, dietaLogs, aplicac
         </div>
       </div>
 
-      {/* PROGRESS BARS */}
       <Card>
         <Lbl>Progresso do Dia</Lbl>
         {[{ l: 'Dieta', v: dietaPct, c: T.nutri, Icon: Utensils }, { l: 'Treino', v: treinoPct, c: T.treino, Icon: Dumbbell }, { l: 'Cardio', v: cardioPct, c: T.ok, Icon: Activity }, { l: 'Protocolo', v: protoPct, c: T.horm, Icon: Syringe }, { l: 'Suplementos', v: suplPct, c: T.gold, Icon: Pill }].map(s => (
           <div key={s.l} style={{ marginBottom: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 6, fontWeight: 700, alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 5, fontWeight: 700, alignItems: 'center' }}>
               <span style={{ color: T.muted, display: 'flex', alignItems: 'center', gap: 6 }}><s.Icon size={12} strokeWidth={1.5} /> {s.l}</span>
               <span style={{ color: s.c, fontWeight: 900 }}>{s.v}%</span>
             </div>
@@ -682,69 +759,51 @@ function DashTab({ profile, nutrition, metrics, todaySession, dietaLogs, aplicac
         ))}
       </Card>
 
-      {/* CARDIO DE HOJE */}
       {todayCardio.length > 0 && (
-        <Card color={T.ok}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <Activity size={24} color={T.ok} strokeWidth={1.5} />
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 800, color: T.ok }}>Cardio Registrado</div>
-              {todayCardio.map((c, i) => <div key={i} style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{c.tipo} · {c.duracao_min}min · Zona {c.zona}</div>)}
-            </div>
-          </div>
-        </Card>
+        <Card color={T.ok}><div style={{ display: 'flex', alignItems: 'center', gap: 14 }}><Activity size={22} color={T.ok} strokeWidth={1.5} /><div><div style={{ fontSize: 13, fontWeight: 800, color: T.ok }}>Cardio Registrado</div>{todayCardio.map((c, i) => <div key={i} style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{c.tipo} · {c.duracao_min}min · Zona {c.zona}</div>)}</div></div></Card>
       )}
 
-      {/* INJECTION */}
       {isInjDay && !alreadyInjected && (
         <Card color={T.horm}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
             <div style={{ width: 44, height: 44, borderRadius: 14, background: T.horm + '20', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Syringe size={22} color={T.horm} strokeWidth={1.5} /></div>
             <div><div style={{ fontSize: 13, fontWeight: 800 }}>Dia de Aplicação</div><div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Testo Enantato + Anastrozol</div></div>
           </div>
-          <Btn full color={T.horm} style={{ color: T.bg }} onClick={() => { const today = new Date().toISOString().slice(0, 10); addAplicacao({ compound: 'Testosterona Enantato', dose: '0.7', unit: 'ml', obs: '', date: today }); addAplicacao({ compound: 'Anastrozol', dose: '0.5', unit: 'mg', obs: '', date: today }) }}>Registrar Aplicação</Btn>
+          <Btn full color={T.horm} style={{ color: T.bg }} onClick={() => { const t = new Date().toISOString().slice(0, 10); addAplicacao({ compound: 'Testosterona Enantato', dose: '0.7', unit: 'ml', obs: '', date: t }); addAplicacao({ compound: 'Anastrozol', dose: '0.5', unit: 'mg', obs: '', date: t }) }}>Registrar Aplicação</Btn>
         </Card>
       )}
       {isInjDay && alreadyInjected && (
         <Card color={T.ok}><div style={{ display: 'flex', alignItems: 'center', gap: 14 }}><CheckCheck size={28} color={T.ok} strokeWidth={2} /><div><div style={{ fontSize: 14, fontWeight: 800, color: T.ok }}>Aplicação Registrada</div><div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Testo + Anastrozol — hoje</div></div></div></Card>
       )}
 
-      {/* SUPLS */}
       <Card>
-        <Lbl>Suplementos — {suplDone}/{SUPLS.length}</Lbl>
+        <Lbl>Suplementos — {suplDone}/{supls.length}</Lbl>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          {SUPLS.map(s => { const done = isSuplDone(s.id); return (
-            <button key={s.id} onClick={() => toggleSupl(s.id)} style={{ background: done ? s.color + '18' : T.faint, border: `1px solid ${done ? s.color : T.border2}`, borderRadius: 16, padding: '14px', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', transition: 'all .2s', boxShadow: done ? `0 0 12px ${s.color}30` : 'none' }}>
+          {supls.map(s => { const done = isSuplDone(s.id); const IconComp = { vitd: Sun, b12: Zap, creat: Flame, omega: Fish }[s.id] || Pill; return (
+            <button key={s.id} onClick={() => toggleSupl(s.id)} style={{ background: done ? (s.color || T.warn) + '18' : T.faint, border: `1px solid ${done ? (s.color || T.warn) : T.border2}`, borderRadius: 16, padding: '14px', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', transition: 'all .2s', boxShadow: done ? `0 0 12px ${(s.color || T.warn)}30` : 'none' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                <s.Icon size={16} color={done ? s.color : T.muted} strokeWidth={1.5} />
+                <IconComp size={16} color={done ? (s.color || T.warn) : T.muted} strokeWidth={1.5} />
                 {done && <CheckCircle size={14} color={T.ok} />}
               </div>
-              <div style={{ fontSize: 12, fontWeight: 800, color: done ? s.color : T.muted, marginBottom: 2 }}>{s.name}</div>
-              <div style={{ fontSize: 10, color: T.muted }}>{s.dose} · {s.time}</div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: done ? (s.color || T.warn) : T.muted, marginBottom: 2 }}>{s.name}</div>
+              <div style={{ fontSize: 10, color: T.muted }}>{s.dose}{s.unit} · {s.time}</div>
             </button>
           )})}
         </div>
       </Card>
 
-      {/* BF + CHART */}
       {bfAtual > bfMeta && (
         <Card color={T.metrica}>
           <Lbl>Previsão BF%</Lbl>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: 12, color: T.muted, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ color: T.alert, fontWeight: 800 }}>{bfAtual}%</span><ArrowRight size={14} color={T.muted} /><span style={{ color: T.ok, fontWeight: 800 }}>{bfMeta}%</span></div>
-              <div style={{ fontSize: 32, fontWeight: 900, letterSpacing: -2 }}>~{semanas} sem</div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 52, fontWeight: 900, color: T.metrica, letterSpacing: -3, lineHeight: 1 }}>{(bfAtual - bfMeta).toFixed(1)}</div>
-              <div style={{ fontSize: 10, color: T.muted, fontWeight: 700 }}>% a perder</div>
-            </div>
+            <div><div style={{ fontSize: 12, color: T.muted, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ color: T.alert, fontWeight: 800 }}>{bfAtual}%</span><ArrowRight size={14} color={T.muted} /><span style={{ color: T.ok, fontWeight: 800 }}>{bfMeta}%</span></div><div style={{ fontSize: 32, fontWeight: 900, letterSpacing: -2 }}>~{semanas} sem</div></div>
+            <div style={{ textAlign: 'right' }}><div style={{ fontSize: 52, fontWeight: 900, color: T.metrica, letterSpacing: -3, lineHeight: 1 }}>{(bfAtual - bfMeta).toFixed(1)}</div><div style={{ fontSize: 10, color: T.muted, fontWeight: 700 }}>% a perder</div></div>
           </div>
         </Card>
       )}
+
       {chartData.length > 1 && (
-        <Card>
-          <Lbl>Evolução — Peso & BF%</Lbl>
+        <Card><Lbl>Evolução — Peso & BF%</Lbl>
           <ResponsiveContainer width="100%" height={110}>
             <AreaChart data={chartData}>
               <defs>
@@ -760,6 +819,7 @@ function DashTab({ profile, nutrition, metrics, todaySession, dietaLogs, aplicac
           </ResponsiveContainer>
         </Card>
       )}
+
       <Card>
         <Lbl>Plano de Fases</Lbl>
         {[{ fase: 'Fase 1 — Cutting', period: 'Abr → Jul 2026', active: true }, { fase: 'Fase 2 — Recomp', period: 'Ago → Out 2026', active: false }, { fase: 'Fase 3 — Bulk', period: 'Nov 2026 → Mar 2027', active: false }, { fase: 'Fase 4 — Cutting', period: 'Abr → Jun 2027', active: false }].map((f, i) => (
@@ -775,7 +835,7 @@ function DashTab({ profile, nutrition, metrics, todaySession, dietaLogs, aplicac
 }
 
 // ─── TREINO ───────────────────────────────────────────────────────────────────
-function TreinoTab({ workout, addItem, editItem, removeItem, onStartMode, cardioLogs }) {
+function TreinoTab({ workout, addItem, editItem, removeItem, onStartMode, cardioLogs, onOpenStartModal }) {
   const [sel, setSel] = useState(null); const [loads, setLoads] = useState({}); const [editing, setEditing] = useState(null); const [exFilter, setExFilter] = useState(null)
   const todayIdx = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1
   const saveLoad = (name, kg, reps, dayId) => { if (!kg) return; addItem({ exercise: name, kg, reps, date: new Date().toLocaleDateString('pt-BR'), day: dayId }); setLoads(l => ({ ...l, [name + '-kg']: '', [name + '-reps']: '' })) }
@@ -808,14 +868,14 @@ function TreinoTab({ workout, addItem, editItem, removeItem, onStartMode, cardio
           </div>
           <Btn full color={session.color} style={{ color: T.bg }} onClick={() => saveLoad(ex.name, loads[ex.name + '-kg'], loads[ex.name + '-reps'], sel)}>+ Salvar</Btn>
         </Card>
-        {hist.length > 0 && (<Card><Lbl>Histórico</Lbl>{hist.map((h, i) => (<div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderBottom: i < hist.length - 1 ? `1px solid ${T.border}` : 'none' }}>{editing?.id === h.id ? (<><Inp value={editing.kg} onChange={v => setEditing({ ...editing, kg: v })} placeholder="kg" style={{ width: 70 }} /><Inp value={editing.reps} onChange={v => setEditing({ ...editing, reps: v })} placeholder="reps" style={{ width: 70 }} /><Btn small color={T.ok} style={{ color: T.bg }} onClick={() => { editItem(editing.id, { kg: editing.kg, reps: editing.reps }); setEditing(null) }}>✓</Btn><Btn small ghost color={T.muted} onClick={() => setEditing(null)}>✕</Btn></>) : (<><span style={{ flex: 1, background: session.color + '15', color: session.color, fontSize: 12, padding: '8px 14px', borderRadius: 12, fontWeight: 700 }}>{h.date} · {h.kg}kg × {h.reps}{h.obs ? ` · ${h.obs}` : ''}</span><button onClick={() => setEditing({ id: h.id, kg: h.kg, reps: h.reps })} style={{ background: 'none', border: 'none', color: T.horm, cursor: 'pointer', fontSize: 15 }}>✏️</button><button onClick={() => removeItem(h.id, `${ex.name} ${h.date}`)} style={{ background: 'none', border: 'none', color: T.alert, cursor: 'pointer' }}><X size={15} /></button></>)}</div>))}</Card>)}
+        {hist.length > 0 && (<Card><Lbl>Histórico</Lbl>{hist.map((h, i) => (<div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderBottom: i < hist.length - 1 ? `1px solid ${T.border}` : 'none' }}>{editing?.id === h.id ? (<><Inp value={editing.kg} onChange={v => setEditing({ ...editing, kg: v })} placeholder="kg" style={{ width: 70 }} /><Inp value={editing.reps} onChange={v => setEditing({ ...editing, reps: v })} placeholder="reps" style={{ width: 70 }} /><Btn small color={T.ok} style={{ color: T.bg }} onClick={() => { editItem(editing.id, { kg: editing.kg, reps: editing.reps }); setEditing(null) }}>✓</Btn><Btn small ghost color={T.muted} onClick={() => setEditing(null)}>✕</Btn></>) : (<><span style={{ flex: 1, background: session.color + '15', color: session.color, fontSize: 12, padding: '8px 14px', borderRadius: 12, fontWeight: 700 }}>{h.date} · {h.kg}kg × {h.reps}</span><button onClick={() => setEditing({ id: h.id, kg: h.kg, reps: h.reps })} style={{ background: 'none', border: 'none', color: T.horm, cursor: 'pointer', fontSize: 15 }}>✏️</button><button onClick={() => removeItem(h.id, `${ex.name} ${h.date}`)} style={{ background: 'none', border: 'none', color: T.alert, cursor: 'pointer' }}><X size={15} /></button></>)}</div>))}</Card>)}
       </div>
     )
   }
 
   if (sel) {
     const session = SPLIT.find(s => s.id === sel)
-    if (sel === 'off') return (<div><button onClick={() => setSel(null)} style={{ background: 'none', border: 'none', color: T.muted, cursor: 'pointer', fontSize: 13, marginBottom: 20, fontFamily: 'inherit', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}><ChevronLeft size={16} /> Voltar</button><div style={{ textAlign: 'center', padding: '60px 20px' }}><div style={{ fontSize: 64, marginBottom: 16 }}>⚽</div><div style={{ fontSize: 28, fontWeight: 900, color: T.text, letterSpacing: -1 }}>Dia de Futebol</div><div style={{ fontSize: 13, color: T.muted, marginTop: 8 }}>Descanso ativo. Aproveita!</div></div></div>)
+    if (sel === 'off') return (<div><button onClick={() => setSel(null)} style={{ background: 'none', border: 'none', color: T.muted, cursor: 'pointer', fontSize: 13, marginBottom: 20, fontFamily: 'inherit', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}><ChevronLeft size={16} /> Voltar</button><div style={{ textAlign: 'center', padding: '60px 20px' }}><div style={{ fontSize: 64, marginBottom: 16 }}>⚽</div><div style={{ fontSize: 28, fontWeight: 900, color: T.text, letterSpacing: -1 }}>Dia de Futebol</div><div style={{ fontSize: 13, color: T.muted, marginTop: 8 }}>Descanso ativo — ou escolha um treino:</div><div style={{ marginTop: 16 }}><Btn color={T.treino} onClick={onOpenStartModal}><Play size={16} fill={T.bg} /> Escolher Treino</Btn></div></div></div>)
     return (
       <div>
         <button onClick={() => setSel(null)} style={{ background: 'none', border: 'none', color: T.muted, cursor: 'pointer', fontSize: 13, marginBottom: 20, fontFamily: 'inherit', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}><ChevronLeft size={16} /> Voltar</button>
@@ -841,8 +901,13 @@ function TreinoTab({ workout, addItem, editItem, removeItem, onStartMode, cardio
 
   return (
     <div>
-      <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: -1.5, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 12 }}><Dumbbell size={26} color={T.treino} strokeWidth={1.5} /> Treinos</div>
-      <div style={{ fontSize: 12, color: T.muted, marginBottom: 18, fontWeight: 600 }}>PPL · 6×/semana</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: -1.5, display: 'flex', alignItems: 'center', gap: 10 }}><Dumbbell size={24} color={T.treino} strokeWidth={1.5} /> Treinos</div>
+          <div style={{ fontSize: 12, color: T.muted, marginTop: 2, fontWeight: 600 }}>PPL · 6×/semana</div>
+        </div>
+        <Btn small color={T.treino} style={{ color: T.bg }} onClick={onOpenStartModal}><Play size={14} fill={T.bg} /> Iniciar</Btn>
+      </div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, overflowX: 'auto', paddingBottom: 4 }}>
         {SPLIT.map((s, i) => { const isToday = i === todayIdx; return (
           <div key={s.id} onClick={() => setSel(s.id)} style={{ flexShrink: 0, width: 58, background: isToday ? s.color : T.card, border: `1px solid ${isToday ? s.color : T.border}`, borderRadius: 16, padding: '10px 6px', textAlign: 'center', cursor: 'pointer', transition: 'all .2s', boxShadow: isToday ? `0 0 14px ${s.color}50` : 'none' }}>
@@ -864,11 +929,9 @@ function TreinoTab({ workout, addItem, editItem, removeItem, onStartMode, cardio
   )
 }
 
-// ─── NUTRI ────────────────────────────────────────────────────────────────────
-function NutriTab({ nutrition, mealLog, dietaLogs, addMeal, removeMeal, addDietaLog }) {
+// ─── NUTRI (com desfazer registro) ────────────────────────────────────────────
+function NutriTab({ nutrition, mealLog, dietaLogs, addMeal, removeMeal, addDietaLog, removeDietaLog }) {
   const [log, setLog] = useState({ time: '', desc: '', kcal: '', prot: '', carb: '', fat: '' })
-  const [showCorrection, setShowCorrection] = useState(null)
-  const [corrDesc, setCorrDesc] = useState('')
   const today = new Date().toISOString().slice(0, 10); const todayDate = new Date().toLocaleDateString('pt-BR')
   const todayDieta = dietaLogs.filter(d => d.date === today || d.created_at?.slice(0, 10) === today)
   const getMealStatus = (mealId) => todayDieta.find(d => d.meal_id === mealId)
@@ -883,18 +946,17 @@ function NutriTab({ nutrition, mealLog, dietaLogs, addMeal, removeMeal, addDieta
 
   return (
     <div>
-      <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: -1.5, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 12 }}><Utensils size={24} color={T.nutri} strokeWidth={1.5} /> Dieta</div>
+      <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: -1.5, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 10 }}><Utensils size={22} color={T.nutri} strokeWidth={1.5} /> Dieta</div>
       <div style={{ fontSize: 12, color: T.muted, marginBottom: 16, fontWeight: 600 }}>~2.100 kcal · 190g proteína</div>
 
-      {/* Macros do dia */}
       <Card color={T.nutri}>
         <Lbl color={T.nutri}>Macros de Hoje</Lbl>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
-          {[{ l: 'Kcal', v: todayKcal, meta: nutrition.calories, u: '', c: T.nutri }, { l: 'Prot', v: todayProt, meta: nutrition.protein, u: 'g', c: T.treino }, { l: 'Carb', v: todayCarb, meta: nutrition.carbs, u: 'g', c: T.warn }, { l: 'Fat', v: todayFat, meta: nutrition.fat, u: 'g', c: T.metrica }].map(m => (
-            <div key={m.l} style={{ background: T.faint, borderRadius: 14, padding: '12px 8px', textAlign: 'center' }}>
-              <div style={{ fontSize: 16, fontWeight: 900, color: m.c, letterSpacing: -1 }}>{m.v}<span style={{ fontSize: 9 }}>{m.u}</span></div>
-              <div style={{ fontSize: 8, color: T.muted, marginTop: 3, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>{m.l}</div>
-              <div style={{ background: T.border, borderRadius: 3, height: 3, marginTop: 6, overflow: 'hidden' }}><div style={{ width: `${Math.min((m.v / m.meta) * 100, 100)}%`, height: '100%', background: m.c, transition: 'width 1s ease' }} /></div>
+          {[{ l: 'Kcal', v: todayKcal, meta: nutrition.calories, c: T.nutri }, { l: 'Prot', v: todayProt, meta: nutrition.protein, c: T.treino }, { l: 'Carb', v: todayCarb, meta: nutrition.carbs, c: T.warn }, { l: 'Fat', v: todayFat, meta: nutrition.fat, c: T.metrica }].map(m => (
+            <div key={m.l} style={{ background: T.faint, borderRadius: 14, padding: '10px 8px', textAlign: 'center' }}>
+              <div style={{ fontSize: 16, fontWeight: 900, color: m.c, letterSpacing: -1 }}>{m.v}</div>
+              <div style={{ fontSize: 8, color: T.muted, marginTop: 2, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>{m.l}</div>
+              <div style={{ background: T.border, borderRadius: 3, height: 3, marginTop: 5, overflow: 'hidden' }}><div style={{ width: `${Math.min((m.v / m.meta) * 100, 100)}%`, height: '100%', background: m.c, transition: 'width 1s ease' }} /></div>
             </div>
           ))}
         </div>
@@ -902,43 +964,39 @@ function NutriTab({ nutrition, mealLog, dietaLogs, addMeal, removeMeal, addDieta
 
       <Card>
         <Lbl>Refeições de Hoje</Lbl>
-        {DIET.map((meal, i) => { const status = getMealStatus(meal.id); const urg = getUrg(meal.time); return (
-          <div key={meal.id} style={{ padding: '12px 0', borderBottom: i < DIET.length - 1 ? `1px solid ${T.border}` : 'none' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                  {urg === 'now' && !status && <Tag color={T.warn} small>Agora</Tag>}
-                  {urg === 'soon' && !status && <Tag color={T.nutri} small>Em breve</Tag>}
-                  <span style={{ fontSize: 11, color: T.nutri, fontWeight: 800 }}>{meal.time}</span>
-                  <span style={{ fontSize: 13, fontWeight: 800 }}>{meal.label}</span>
+        {DIET.map((meal, i) => {
+          const status = getMealStatus(meal.id); const urg = getUrg(meal.time)
+          return (
+            <div key={meal.id} style={{ padding: '12px 0', borderBottom: i < DIET.length - 1 ? `1px solid ${T.border}` : 'none' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                    {urg === 'now' && !status && <Tag color={T.warn} small>Agora</Tag>}
+                    {urg === 'soon' && !status && <Tag color={T.nutri} small>Em breve</Tag>}
+                    <span style={{ fontSize: 11, color: T.nutri, fontWeight: 800 }}>{meal.time}</span>
+                    <span style={{ fontSize: 13, fontWeight: 800 }}>{meal.label}</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: T.muted }}>{meal.kcal}kcal · P:{meal.prot}g · C:{meal.carb}g · G:{meal.fat}g</div>
                 </div>
-                <div style={{ fontSize: 10, color: T.muted }}>{meal.kcal}kcal · P:{meal.prot}g · C:{meal.carb}g · G:{meal.fat}g</div>
+                {status ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Tag color={status.ate ? T.ok : T.alert} small>{status.ate ? '✓ Comi' : '✗ Não'}</Tag>
+                    {/* DESFAZER REGISTRO */}
+                    <button onClick={() => removeDietaLog(status.id, `${meal.label}`)} title="Desfazer registro" style={{ background: T.faint, border: `1px solid ${T.border2}`, color: T.warn, borderRadius: 8, width: 28, height: 28, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <RefreshCw size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => toggleMeal(meal, true)} style={{ background: T.ok + '18', color: T.ok, border: `1px solid ${T.ok}35`, borderRadius: 10, padding: '6px 12px', fontSize: 11, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>✓</button>
+                    <button onClick={() => toggleMeal(meal, false)} style={{ background: T.alert + '18', color: T.alert, border: `1px solid ${T.alert}35`, borderRadius: 10, padding: '6px 12px', fontSize: 11, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>✗</button>
+                  </div>
+                )}
               </div>
-              {status ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Tag color={status.ate ? T.ok : T.alert} small>{status.ate ? '✓ Comi' : '✗ Não'}</Tag>
-                  <button onClick={() => setShowCorrection(meal.id)} style={{ background: 'none', border: 'none', color: T.muted, cursor: 'pointer', fontSize: 10, fontFamily: 'inherit' }}>✏️</button>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button onClick={() => toggleMeal(meal, true)} style={{ background: T.ok + '18', color: T.ok, border: `1px solid ${T.ok}35`, borderRadius: 10, padding: '6px 12px', fontSize: 11, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>✓</button>
-                  <button onClick={() => toggleMeal(meal, false)} style={{ background: T.alert + '18', color: T.alert, border: `1px solid ${T.alert}35`, borderRadius: 10, padding: '6px 12px', fontSize: 11, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>✗</button>
-                </div>
-              )}
+              {meal.options.map((op, j) => <div key={j} style={{ fontSize: 10, color: T.muted, lineHeight: 1.7, paddingLeft: 12, borderLeft: `2px solid ${T.nutri}25`, marginTop: 3 }}>{op}</div>)}
             </div>
-            {showCorrection === meal.id && (
-              <div style={{ background: T.faint, borderRadius: 12, padding: '12px', marginTop: 8 }}>
-                <div style={{ fontSize: 11, color: T.warn, fontWeight: 700, marginBottom: 8 }}>Corrigir registro</div>
-                <Inp placeholder="O que aconteceu de diferente?" value={corrDesc} onChange={setCorrDesc} style={{ width: '100%', marginBottom: 8, fontSize: 12 }} />
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <Btn small ghost color={T.muted} onClick={() => { setShowCorrection(null); setCorrDesc('') }}>Cancelar</Btn>
-                  <Btn small color={T.warn} style={{ color: T.bg }} onClick={() => { addMeal({ desc: `[CORREÇÃO] ${meal.label}: ${corrDesc}`, kcal: 0, prot: 0, carb: 0, fat: 0, date: todayDate, time: meal.time }); setShowCorrection(null); setCorrDesc('') }}>Salvar Correção</Btn>
-                </div>
-              </div>
-            )}
-            {meal.options.map((op, j) => <div key={j} style={{ fontSize: 10, color: T.muted, lineHeight: 1.7, paddingLeft: 12, borderLeft: `2px solid ${T.nutri}25`, marginTop: 3 }}>{op}</div>)}
-          </div>
-        )})}
+          )
+        })}
       </Card>
 
       <Card color={T.treino}>
@@ -959,7 +1017,7 @@ function NutriTab({ nutrition, mealLog, dietaLogs, addMeal, removeMeal, addDieta
       {mealLog.filter(m => m.date === todayDate).length > 0 && (
         <Card><Lbl>Livres de Hoje</Lbl>{mealLog.filter(m => m.date === todayDate).map((m, i, arr) => (
           <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : 'none' }}>
-            <div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 700, color: m.desc?.includes('[CORREÇÃO]') ? T.warn : T.text }}>{m.desc}</div><div style={{ fontSize: 10, color: T.muted }}>{m.time}</div></div>
+            <div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 700 }}>{m.desc}</div><div style={{ fontSize: 10, color: T.muted }}>{m.time}</div></div>
             <div style={{ textAlign: 'right', marginRight: 10 }}><div style={{ fontSize: 11, color: T.nutri, fontWeight: 800 }}>{m.kcal}kcal</div></div>
             <button onClick={() => removeMeal(m.id, m.desc)} style={{ background: 'none', border: 'none', color: T.alert, cursor: 'pointer' }}><X size={15} /></button>
           </div>
@@ -969,19 +1027,38 @@ function NutriTab({ nutrition, mealLog, dietaLogs, addMeal, removeMeal, addDieta
   )
 }
 
-// ─── SAÚDE ────────────────────────────────────────────────────────────────────
-function HormTab({ labLog, addLab, removeLab, aplicacoes, addAplicacao, removeAplicacao, compounds, saveCompounds }) {
+// ─── SAÚDE (Suplementação gerenciável + nomenclatura corrigida) ────────────────
+function HormTab({ labLog, addLab, removeLab, aplicacoes, addAplicacao, removeAplicacao, compounds, saveCompounds, supls, saveSupls, isSuplDone, toggleSupl }) {
   const [labForm, setLabForm] = useState({ marker: '', value: '', unit: '', date: '' })
   const [appForm, setAppForm] = useState({ compound: '', dose: '', unit: 'ml', obs: '', date: '' })
-  const [editDose, setEditDose] = useState(null); const [showApp, setShowApp] = useState(false); const [showLab, setShowLab] = useState(false)
-  const [pdfFile, setPdfFile] = useState(null)
+  const [editDose, setEditDose] = useState(null)
+  const [showApp, setShowApp] = useState(false)
+  const [showLab, setShowLab] = useState(false)
+  const [showSuplForm, setShowSuplForm] = useState(false)
+  const [editingSupl, setEditingSupl] = useState(null)
+  const [suplForm, setSuplForm] = useState({ name: '', dose: '', unit: 'mg', time: '', obs: '', color: T.warn })
   const fileRef = useRef(null)
+  const [pdfFile, setPdfFile] = useState(null)
   const today = new Date().toISOString().slice(0, 10)
+  const UNITS = ['mg', 'ml', 'g', 'mcg', 'UI', 'cápsulas', 'scoops']
+  const COLORS = [T.warn, T.treino, T.horm, T.metrica, T.nutri, T.ok]
 
   const getStatus = (marker, val) => { const ref = LAB_REFS[marker]; if (!ref) return 'ok'; const v = parseFloat(val); if (isNaN(v)) return 'ok'; if (ref.alert === 'high' && v > ref.max) return 'alert'; if (ref.alert === 'low' && v < ref.min) return 'alert'; if (v < ref.min || v > ref.max) return 'warn'; return 'ok' }
   const getTrend = (marker) => { const h = labLog.filter(l => l.marker === marker).sort((a, b) => new Date(a.created_at || a.date) - new Date(b.created_at || b.date)); if (h.length < 2) return null; const l = parseFloat(h[h.length - 1].value), p = parseFloat(h[h.length - 2].value); if (isNaN(l) || isNaN(p)) return null; if (l > p) return 'up'; if (l < p) return 'down'; return 'eq' }
   const getAlerts = () => { const latest = {}; labLog.forEach(l => { if (!latest[l.marker] || new Date(l.created_at || l.date) > new Date(latest[l.marker].created_at || latest[l.marker].date)) latest[l.marker] = l }); return Object.values(latest).filter(l => getStatus(l.marker, l.value) !== 'ok') }
-  const alerts = getAlerts(); const appsGrouped = {}; aplicacoes.forEach(a => { if (!appsGrouped[a.compound]) appsGrouped[a.compound] = []; appsGrouped[a.compound].push(a) })
+  const alerts = getAlerts()
+  const appsGrouped = {}; aplicacoes.forEach(a => { if (!appsGrouped[a.compound]) appsGrouped[a.compound] = []; appsGrouped[a.compound].push(a) })
+
+  const openNewSupl = () => { setSuplForm({ name: '', dose: '', unit: 'mg', time: '', obs: '', color: T.warn }); setEditingSupl(null); setShowSuplForm(true) }
+  const openEditSupl = (s) => { setSuplForm({ ...s }); setEditingSupl(s.id); setShowSuplForm(true) }
+  const saveSupl = () => {
+    if (!suplForm.name) return
+    let updated
+    if (editingSupl) updated = supls.map(s => s.id === editingSupl ? { ...suplForm, id: editingSupl } : s)
+    else updated = [...supls, { ...suplForm, id: genId() }]
+    saveSupls(updated); setShowSuplForm(false)
+  }
+  const deleteSupl = (id) => saveSupls(supls.filter(s => s.id !== id))
 
   const handlePdf = (e) => { const f = e.target.files[0]; if (f) setPdfFile(f) }
   const saveLab = () => {
@@ -992,14 +1069,17 @@ function HormTab({ labLog, addLab, removeLab, aplicacoes, addAplicacao, removeAp
 
   return (
     <div>
-      <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: -1.5, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 12 }}><Heart size={24} color={T.horm} strokeWidth={1.5} /> Saúde</div>
-      <div style={{ fontSize: 12, color: T.muted, marginBottom: 16, fontWeight: 600 }}>Protocolo · Aplicações · Exames</div>
+      <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: -1.5, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 10 }}><Heart size={22} color={T.horm} strokeWidth={1.5} /> Saúde</div>
+      <div style={{ fontSize: 12, color: T.muted, marginBottom: 16, fontWeight: 600 }}>Protocolo · Registros · Exames</div>
+
       {alerts.length > 0 && (
         <Card color={T.alert}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}><AlertTriangle size={16} color={T.alert} /><Lbl color={T.alert}>Alertas</Lbl></div>
           {alerts.map((a, i) => { const ref = LAB_REFS[a.marker]; const st = getStatus(a.marker, a.value); return (<div key={i} style={{ display: 'flex', alignItems: 'flex-start', padding: '7px 0', borderBottom: i < alerts.length - 1 ? `1px solid ${T.border}` : 'none' }}><StatusDot status={st} /><div><div style={{ fontSize: 12, fontWeight: 800 }}>{a.marker}: {a.value}</div><div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>{st === 'alert' && ref?.alert === 'high' ? `Acima (>${ref.max}${ref.unit})` : `Abaixo (<${ref.min}${ref.unit})`}</div></div></div>) })}
         </Card>
       )}
+
+      {/* PROTOCOLO */}
       <Card color={T.horm}>
         <Lbl color={T.horm}>Protocolo Ativo</Lbl>
         {compounds.map((c, idx) => (
@@ -1016,47 +1096,95 @@ function HormTab({ labLog, addLab, removeLab, aplicacoes, addAplicacao, removeAp
           </div>
         ))}
       </Card>
-      <div style={{ marginBottom: 10 }}><Btn full color={T.horm} style={{ color: T.bg }} onClick={() => setShowApp(!showApp)}><Syringe size={16} /> {showApp ? 'Cancelar' : 'Registrar Aplicação'}</Btn></div>
+
+      {/* REGISTRAR APLICAÇÃO / MEDICAÇÃO — nomenclatura corrigida */}
+      <div style={{ marginBottom: 10 }}><Btn full color={T.horm} style={{ color: T.bg }} onClick={() => setShowApp(!showApp)}><Syringe size={16} /> {showApp ? 'Cancelar' : 'Registrar Aplicação / Medicação'}</Btn></div>
       {showApp && (
         <Card color={T.horm}>
-          <Lbl>Nova Aplicação</Lbl>
-          <select value={appForm.compound} onChange={e => setAppForm({ ...appForm, compound: e.target.value })} style={{ width: '100%', background: T.faint, border: `1px solid ${T.border2}`, borderRadius: 12, padding: '12px 14px', fontSize: 13, color: T.text, outline: 'none', marginBottom: 8, fontFamily: 'inherit' }}><option value="">Selecionar…</option>{compounds.map(c => <option key={c.id}>{c.name}</option>)}</select>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 8 }}><Inp placeholder="Dose" value={appForm.dose} onChange={v => setAppForm({ ...appForm, dose: v })} style={{ width: '100%' }} /><select value={appForm.unit} onChange={e => setAppForm({ ...appForm, unit: e.target.value })} style={{ background: T.faint, border: `1px solid ${T.border2}`, borderRadius: 12, padding: '12px 8px', fontSize: 13, color: T.text, outline: 'none', fontFamily: 'inherit' }}><option value="ml">ml</option><option value="mg">mg</option><option value="UI">UI</option></select><Inp type="date" value={appForm.date} onChange={v => setAppForm({ ...appForm, date: v })} style={{ width: '100%' }} /></div>
+          <Lbl>Nova Aplicação / Medicação</Lbl>
+          <select value={appForm.compound} onChange={e => setAppForm({ ...appForm, compound: e.target.value })} style={{ width: '100%', background: T.faint, border: `1px solid ${T.border2}`, borderRadius: 12, padding: '12px 14px', fontSize: 13, color: T.text, outline: 'none', marginBottom: 8, fontFamily: 'inherit' }}><option value="">Selecionar composto…</option>{compounds.map(c => <option key={c.id}>{c.name}</option>)}</select>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 8 }}><Inp placeholder="Dose" value={appForm.dose} onChange={v => setAppForm({ ...appForm, dose: v })} style={{ width: '100%' }} /><select value={appForm.unit} onChange={e => setAppForm({ ...appForm, unit: e.target.value })} style={{ background: T.faint, border: `1px solid ${T.border2}`, borderRadius: 12, padding: '12px 8px', fontSize: 13, color: T.text, outline: 'none', fontFamily: 'inherit' }}><option value="ml">ml</option><option value="mg">mg</option><option value="UI">UI</option><option value="cáp">cáp</option></select><Inp type="date" value={appForm.date} onChange={v => setAppForm({ ...appForm, date: v })} style={{ width: '100%' }} /></div>
           <Inp placeholder="Obs" value={appForm.obs} onChange={v => setAppForm({ ...appForm, obs: v })} style={{ width: '100%', marginBottom: 12 }} />
-          <Btn full color={T.horm} style={{ color: T.bg }} onClick={() => { if (!appForm.compound || !appForm.dose) return; addAplicacao({ ...appForm, date: appForm.date || today }); setAppForm({ compound: '', dose: '', unit: 'ml', obs: '', date: '' }); setShowApp(false) }}>Salvar</Btn>
+          <Btn full color={T.horm} style={{ color: T.bg }} onClick={() => { if (!appForm.compound || !appForm.dose) return; addAplicacao({ ...appForm, date: appForm.date || today }); setAppForm({ compound: '', dose: '', unit: 'ml', obs: '', date: '' }); setShowApp(false) }}>Salvar Registro</Btn>
         </Card>
       )}
-      {aplicacoes.length > 0 && (<Card><Lbl>Histórico de Aplicações</Lbl>{[...aplicacoes].sort((a, b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date)).slice(0, 10).map((a, i) => (<div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${T.border}` }}><div><div style={{ fontSize: 12, fontWeight: 800 }}>{a.compound}</div><div style={{ fontSize: 10, color: T.muted, marginTop: 1 }}>{a.date}{a.obs ? ` · ${a.obs}` : ''}</div></div><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Tag color={T.horm}>{a.dose}{a.unit}</Tag><button onClick={() => removeAplicacao(a.id, `${a.compound} ${a.date}`)} style={{ background: 'none', border: 'none', color: T.alert, cursor: 'pointer' }}><X size={14} /></button></div></div>))}</Card>)}
 
+      {aplicacoes.length > 0 && (<Card><Lbl>Histórico de Registros</Lbl>{[...aplicacoes].sort((a, b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date)).slice(0, 10).map((a, i) => (<div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${T.border}` }}><div><div style={{ fontSize: 12, fontWeight: 800 }}>{a.compound}</div><div style={{ fontSize: 10, color: T.muted, marginTop: 1 }}>{a.date}{a.obs ? ` · ${a.obs}` : ''}</div></div><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Tag color={T.horm}>{a.dose}{a.unit}</Tag><button onClick={() => removeAplicacao(a.id, `${a.compound} ${a.date}`)} style={{ background: 'none', border: 'none', color: T.alert, cursor: 'pointer' }}><X size={14} /></button></div></div>))}</Card>)}
+
+      {/* SUPLEMENTAÇÃO GERENCIÁVEL */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Suplementação</div>
+        <Btn small color={T.treino} style={{ color: T.bg }} onClick={openNewSupl}><Plus size={14} /> Novo</Btn>
+      </div>
+
+      {showSuplForm && (
+        <Card color={T.treino}>
+          <Lbl color={T.treino}>{editingSupl ? 'Editar Suplemento' : 'Novo Suplemento'}</Lbl>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+            <div style={{ gridColumn: '1/-1' }}><Lbl>Nome</Lbl><Inp placeholder="Ex: Creatina" value={suplForm.name} onChange={v => setSuplForm({ ...suplForm, name: v })} style={{ width: '100%' }} /></div>
+            <div><Lbl>Quantidade</Lbl><Inp placeholder="5" value={suplForm.dose} onChange={v => setSuplForm({ ...suplForm, dose: v })} style={{ width: '100%' }} /></div>
+            <div><Lbl>Unidade</Lbl>
+              <select value={suplForm.unit} onChange={e => setSuplForm({ ...suplForm, unit: e.target.value })} style={{ width: '100%', background: T.faint, border: `1px solid ${T.border2}`, borderRadius: 12, padding: '12px 8px', fontSize: 13, color: T.text, outline: 'none', fontFamily: 'inherit' }}>
+                {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
+            <div><Lbl>Horário</Lbl><Inp placeholder="Manhã" value={suplForm.time} onChange={v => setSuplForm({ ...suplForm, time: v })} style={{ width: '100%' }} /></div>
+            <div><Lbl>Cor</Lbl>
+              <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                {COLORS.map(c => <button key={c} onClick={() => setSuplForm({ ...suplForm, color: c })} style={{ width: 28, height: 28, borderRadius: '50%', background: c, border: suplForm.color === c ? `3px solid white` : '2px solid transparent', cursor: 'pointer' }} />)}
+              </div>
+            </div>
+          </div>
+          <Inp placeholder="Observação (opcional)" value={suplForm.obs} onChange={v => setSuplForm({ ...suplForm, obs: v })} style={{ width: '100%', marginBottom: 12 }} />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Btn full ghost color={T.muted} onClick={() => setShowSuplForm(false)} small>Cancelar</Btn>
+            <Btn full color={T.treino} style={{ color: T.bg }} onClick={saveSupl} small>{editingSupl ? 'Salvar' : 'Adicionar'}</Btn>
+          </div>
+        </Card>
+      )}
+
+      <Card>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          {supls.map(s => { const done = isSuplDone(s.id); return (
+            <div key={s.id} style={{ background: done ? (s.color || T.warn) + '18' : T.faint, border: `1px solid ${done ? (s.color || T.warn) : T.border2}`, borderRadius: 16, padding: '12px', transition: 'all .2s', boxShadow: done ? `0 0 12px ${(s.color || T.warn)}30` : 'none', position: 'relative' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                <div style={{ width: 10, height: 10, borderRadius: '50%', background: s.color || T.warn, marginTop: 3 }} />
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => openEditSupl(s)} style={{ background: 'none', border: 'none', color: T.muted, cursor: 'pointer', padding: 0 }}><Edit2 size={12} /></button>
+                  <button onClick={() => deleteSupl(s.id)} style={{ background: 'none', border: 'none', color: T.alert, cursor: 'pointer', padding: 0 }}><Trash2 size={12} /></button>
+                </div>
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: done ? (s.color || T.warn) : T.text, marginBottom: 3 }}>{s.name}</div>
+              <div style={{ fontSize: 10, color: T.muted, marginBottom: 8 }}>{s.dose}{s.unit}{s.time ? ` · ${s.time}` : ''}</div>
+              {s.obs && <div style={{ fontSize: 9, color: T.muted, marginBottom: 8, fontStyle: 'italic' }}>{s.obs}</div>}
+              <button onClick={() => toggleSupl(s.id)} style={{ width: '100%', background: done ? (s.color || T.warn) + '25' : T.subtle, border: `1px solid ${done ? (s.color || T.warn) + '50' : T.border2}`, borderRadius: 10, padding: '6px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 800, color: done ? (s.color || T.warn) : T.muted, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, transition: 'all .2s' }}>
+                {done ? <><CheckCircle size={12} /> Tomado</> : <><Plus size={12} /> Marcar</>}
+              </button>
+            </div>
+          )})}
+        </div>
+      </Card>
+
+      {/* EXAMES */}
       <div style={{ marginBottom: 10, marginTop: 6 }}><Btn full color={T.nutri} style={{ color: T.bg }} onClick={() => setShowLab(!showLab)}><FlaskConical size={16} /> {showLab ? 'Cancelar' : 'Registrar Exame'}</Btn></div>
       {showLab && (
         <Card color={T.nutri}>
           <Lbl>Novo Exame</Lbl>
           <select value={labForm.marker} onChange={e => { const ref = LAB_REFS[e.target.value]; setLabForm({ ...labForm, marker: e.target.value, unit: ref?.unit || '' }) }} style={{ width: '100%', background: T.faint, border: `1px solid ${T.border2}`, borderRadius: 12, padding: '12px 14px', fontSize: 13, color: T.text, outline: 'none', marginBottom: 8, fontFamily: 'inherit' }}><option value="">Selecionar marcador…</option>{Object.keys(LAB_REFS).map(k => <option key={k}>{k}</option>)}<option>Outro</option></select>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}><Inp placeholder="Valor" value={labForm.value} onChange={v => setLabForm({ ...labForm, value: v })} style={{ width: '100%' }} /><Inp placeholder="Unidade" value={labForm.unit} onChange={v => setLabForm({ ...labForm, unit: v })} style={{ width: '100%' }} /><Inp type="date" value={labForm.date} onChange={v => setLabForm({ ...labForm, date: v })} style={{ width: '100%' }} /></div>
-          {/* Upload PDF */}
           <input ref={fileRef} type="file" accept="application/pdf" onChange={handlePdf} style={{ display: 'none' }} />
           <button onClick={() => fileRef.current?.click()} style={{ width: '100%', background: T.faint, border: `1px dashed ${T.border2}`, borderRadius: 12, padding: '12px', color: pdfFile ? T.ok : T.muted, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-            <Upload size={16} /> {pdfFile ? `PDF: ${pdfFile.name}` : 'Anexar PDF do exame (opcional)'}
+            <Upload size={16} /> {pdfFile ? `PDF: ${pdfFile.name}` : 'Anexar PDF (opcional)'}
           </button>
           <Btn full color={T.horm} style={{ color: T.bg }} onClick={saveLab}>Salvar Exame</Btn>
         </Card>
       )}
       {labLog.length > 0 && (<Card><Lbl>Histórico de Exames</Lbl>{[...labLog].sort((a, b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date)).slice(0, 20).map((l, i) => { const st = getStatus(l.marker, l.value); const trend = getTrend(l.marker); const ref = LAB_REFS[l.marker]; const TrendIcon = trend === 'up' ? TrendingUp : trend === 'down' ? TrendingDown : Minus; const trendColor = trend === 'up' ? T.alert : trend === 'down' ? T.ok : T.muted; return (<div key={l.id} style={{ display: 'flex', alignItems: 'flex-start', padding: '8px 0', borderBottom: `1px solid ${T.border}` }}><StatusDot status={st} /><div style={{ flex: 1 }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><div style={{ fontSize: 12, fontWeight: 800 }}>{l.marker}{l.pdf_name ? ' 📄' : ''}</div><div style={{ fontSize: 10, color: T.muted, marginTop: 1 }}>{l.date || l.created_at?.slice(0, 10)}{ref ? ` · ${ref.min}–${ref.max}${ref.unit}` : ''}</div></div><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{trend && <TrendIcon size={13} color={trendColor} />}<span style={{ fontSize: 13, fontWeight: 800, color: st === 'ok' ? T.ok : st === 'warn' ? T.warn : T.alert }}>{l.value}{l.unit ? ` ${l.unit}` : ''}</span><button onClick={() => removeLab(l.id, l.marker)} style={{ background: 'none', border: 'none', color: T.alert, cursor: 'pointer' }}><X size={13} /></button></div></div></div></div>) })}</Card>)}
-      <Card color={T.treino}>
-        <Lbl color={T.treino}>Suplementação</Lbl>
-        {[{ s: 'Vitamina D3+K2', d: '2.000–4.000 UI/dia', status: 'alert', note: 'Deficiente no exame fev/26' }, { s: 'Vitamina B12', d: '1.000 mcg/dia', status: 'warn', note: 'Baixo-moderado. Monitorar.' }, { s: 'Creatina', d: '3–5g pós-treino', status: 'ok', note: 'Manutenção de força no cutting.' }, { s: 'Ômega 3', d: '2–4g/dia', status: 'warn', note: 'Auxilia no HDL baixo.' }].map((s, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'flex-start', padding: '8px 0', borderBottom: i < 3 ? `1px solid ${T.border}` : 'none' }}>
-            <StatusDot status={s.status} />
-            <div><div style={{ fontSize: 13, fontWeight: 800 }}>{s.s}</div><div style={{ fontSize: 11, color: T.horm, fontWeight: 700, marginTop: 1 }}>{s.d}</div><div style={{ fontSize: 11, color: T.muted, marginTop: 1 }}>{s.note}</div></div>
-          </div>
-        ))}
-      </Card>
     </div>
   )
 }
 
-// ─── CORPO (com fotos integradas) ─────────────────────────────────────────────
+// ─── CORPO ────────────────────────────────────────────────────────────────────
 function BodyTab({ metrics, profile, addMetric, editMetric, removeMetric, photos, addPhoto, removePhoto }) {
   const [entry, setEntry] = useState({ date: '', weight: '', bf: '', waist: '', armL: '', armR: '', chest: '', notes: '' })
   const [editing, setEditing] = useState(null)
@@ -1076,9 +1204,7 @@ function BodyTab({ metrics, profile, addMetric, editMetric, removeMetric, photos
 
   return (
     <div>
-      <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: -1.5, marginBottom: 16 }}>Corpo & Fotos</div>
-
-      {/* BF */}
+      <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: -1.5, marginBottom: 16 }}>Corpo & Fotos</div>
       <Card color={T.metrica}>
         <Lbl color={T.metrica}>BF% — Atual → Meta</Lbl>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -1087,9 +1213,7 @@ function BodyTab({ metrics, profile, addMetric, editMetric, removeMetric, photos
           <div style={{ flex: 1, textAlign: 'center', background: T.faint, borderRadius: 14, padding: '16px 10px' }}><div style={{ fontSize: 34, fontWeight: 900, color: T.ok, letterSpacing: -2 }}>{profile.bfMeta || 12}%</div><div style={{ fontSize: 9, color: T.muted, textTransform: 'uppercase', letterSpacing: 2, marginTop: 5, fontWeight: 700 }}>Meta</div></div>
         </div>
       </Card>
-
       {last && (<div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 12 }}>{[{ l: 'Peso', v: `${last.weight}kg`, c: T.treino }, { l: 'BF%', v: `${last.bf}%`, c: T.metrica }, { l: 'Cintura', v: last.waist ? `${last.waist}cm` : '—', c: T.nutri }].map(s => (<div key={s.l} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: '14px 10px', textAlign: 'center' }}><div style={{ fontSize: 20, fontWeight: 900, color: s.c, letterSpacing: -1 }}>{s.v}</div><div style={{ fontSize: 9, color: T.muted, textTransform: 'uppercase', letterSpacing: 1.5, marginTop: 5, fontWeight: 700 }}>{s.l}</div></div>))}</div>)}
-
       <Card color={T.metrica}>
         <Lbl color={T.metrica}>Nova Medição</Lbl>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
@@ -1100,24 +1224,14 @@ function BodyTab({ metrics, profile, addMetric, editMetric, removeMetric, photos
         <div style={{ marginBottom: 12 }}><Lbl>Obs</Lbl><Inp placeholder="Em jejum, horário…" value={entry.notes} onChange={v => setEntry({ ...entry, notes: v })} style={{ width: '100%' }} /></div>
         <Btn full color={T.metrica} style={{ color: T.bg }} onClick={add}>+ Salvar Medição</Btn>
       </Card>
-
       {chartData.length > 1 && (<Card><Lbl>Evolução</Lbl><ResponsiveContainer width="100%" height={120}><AreaChart data={chartData}><defs><linearGradient id="gk2" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={T.treino} stopOpacity={.2} /><stop offset="95%" stopColor={T.treino} stopOpacity={0} /></linearGradient><linearGradient id="gm2" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={T.metrica} stopOpacity={.2} /><stop offset="95%" stopColor={T.metrica} stopOpacity={0} /></linearGradient></defs><XAxis dataKey="n" tick={{ fill: T.muted, fontSize: 9 }} axisLine={false} tickLine={false} /><YAxis hide /><Tooltip contentStyle={{ background: T.card, border: `1px solid ${T.border2}`, borderRadius: 12, fontSize: 11, color: T.text }} /><Area type="monotone" dataKey="kg" stroke={T.treino} strokeWidth={2.5} fill="url(#gk2)" dot={{ fill: T.treino, r: 3 }} connectNulls name="Peso" /><Area type="monotone" dataKey="bf" stroke={T.metrica} strokeWidth={2.5} fill="url(#gm2)" dot={{ fill: T.metrica, r: 3 }} connectNulls name="BF%" /></AreaChart></ResponsiveContainer></Card>)}
-
-      {/* FOTOS */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <div style={{ fontSize: 16, fontWeight: 800, color: T.gold }}>Fotos · {photos.length}</div>
         {photos.length >= 2 && <Btn small color={T.gold} style={{ color: T.bg }} onClick={() => setViewCompare(!viewCompare)}>⇔ Comparar</Btn>}
       </div>
-
       {viewCompare && !selectedA && <div style={{ fontSize: 13, color: T.gold, marginBottom: 12, fontWeight: 700 }}>Selecione ANTES:</div>}
       {viewCompare && selectedA && !selectedB && <div style={{ fontSize: 13, color: T.gold, marginBottom: 12, fontWeight: 700 }}>Selecione DEPOIS:</div>}
-      {viewCompare && selectedA && selectedB && (
-        <div style={{ marginBottom: 16 }}>
-          <PhotoSlider before={selectedA.src} after={selectedB.src} />
-          <Btn small ghost color={T.muted} onClick={() => { setSelectedA(null); setSelectedB(null) }} style={{ marginTop: 10 }}>Resetar</Btn>
-        </div>
-      )}
-
+      {viewCompare && selectedA && selectedB && (<div style={{ marginBottom: 16 }}><PhotoSlider before={selectedA.src} after={selectedB.src} /><Btn small ghost color={T.muted} onClick={() => { setSelectedA(null); setSelectedB(null) }} style={{ marginTop: 10 }}>Resetar</Btn></div>)}
       <Card color={T.gold}>
         <Lbl color={T.gold}>Nova Foto</Lbl>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -1129,53 +1243,24 @@ function BodyTab({ metrics, profile, addMetric, editMetric, removeMetric, photos
           <Btn full ghost color={T.gold} onClick={() => { fileRef.current.removeAttribute('capture'); fileRef.current?.click(); setTimeout(() => fileRef.current?.setAttribute('capture', 'environment'), 500) }}><FolderOpen size={15} /> Galeria</Btn>
         </div>
       </Card>
-
       {TAGS.filter(t => byTag(t).length > 0).map(t => (
         <div key={t} style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 10, color: T.muted, fontWeight: 800, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 8 }}>{t} · {byTag(t).length}</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            {byTag(t).map(p => {
-              const isA = selectedA?.id === p.id; const isB = selectedB?.id === p.id
-              return (
-                <div key={p.id} onClick={() => { if (viewCompare) { if (!selectedA) setSelectedA(p); else if (!selectedB && p.id !== selectedA.id) setSelectedB(p) } }} style={{ position: 'relative', aspectRatio: '3/4', borderRadius: 16, overflow: 'hidden', border: `2px solid ${isA ? T.warn : isB ? T.ok : T.border}`, cursor: viewCompare ? 'pointer' : 'default' }}>
-                  <img src={p.src} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(transparent 60%,rgba(0,0,0,.8))' }} />
-                  {isA && <div style={{ position: 'absolute', top: 8, left: 8, background: T.warn, color: T.bg, fontSize: 9, fontWeight: 800, padding: '3px 8px', borderRadius: 6 }}>ANTES</div>}
-                  {isB && <div style={{ position: 'absolute', top: 8, left: 8, background: T.ok, color: T.bg, fontSize: 9, fontWeight: 800, padding: '3px 8px', borderRadius: 6 }}>DEPOIS</div>}
-                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '10px' }}><div style={{ fontSize: 11, color: 'white', fontWeight: 800 }}>{p.date}</div></div>
-                  <button onClick={(e) => { e.stopPropagation(); removePhoto(p.id) }} style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,.7)', border: 'none', color: 'white', width: 28, height: 28, borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={13} /></button>
-                </div>
-              )
-            })}
+            {byTag(t).map(p => { const isA = selectedA?.id === p.id; const isB = selectedB?.id === p.id; return (
+              <div key={p.id} onClick={() => { if (viewCompare) { if (!selectedA) setSelectedA(p); else if (!selectedB && p.id !== selectedA.id) setSelectedB(p) } }} style={{ position: 'relative', aspectRatio: '3/4', borderRadius: 16, overflow: 'hidden', border: `2px solid ${isA ? T.warn : isB ? T.ok : T.border}`, cursor: viewCompare ? 'pointer' : 'default' }}>
+                <img src={p.src} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(transparent 60%,rgba(0,0,0,.8))' }} />
+                {isA && <div style={{ position: 'absolute', top: 8, left: 8, background: T.warn, color: T.bg, fontSize: 9, fontWeight: 800, padding: '3px 8px', borderRadius: 6 }}>ANTES</div>}
+                {isB && <div style={{ position: 'absolute', top: 8, left: 8, background: T.ok, color: T.bg, fontSize: 9, fontWeight: 800, padding: '3px 8px', borderRadius: 6 }}>DEPOIS</div>}
+                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '10px' }}><div style={{ fontSize: 11, color: 'white', fontWeight: 800 }}>{p.date}</div></div>
+                <button onClick={(e) => { e.stopPropagation(); removePhoto(p.id) }} style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,.7)', border: 'none', color: 'white', width: 28, height: 28, borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={13} /></button>
+              </div>
+            )})}
           </div>
         </div>
       ))}
-
-      {sorted.length > 0 && (
-        <Card>
-          <Lbl>Histórico de Medições</Lbl>
-          {[...sorted].reverse().map(m => (
-            <div key={m.id}>
-              {editing?.id === m.id ? (
-                <div style={{ padding: '10px 0', borderBottom: `1px solid ${T.border}` }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 }}>
-                    {[{ l: 'Peso', k: 'weight' }, { l: 'BF%', k: 'bf' }, { l: 'Cintura', k: 'waist' }, { l: 'Peito', k: 'chest' }, { l: 'B.Esq', k: 'armL' }, { l: 'B.Dir', k: 'armR' }].map(f => (
-                      <div key={f.k}><div style={{ fontSize: 9, color: T.muted, marginBottom: 3, fontWeight: 700 }}>{f.l}</div><Inp value={editing[f.k] || ''} onChange={v => setEditing({ ...editing, [f.k]: v })} style={{ width: '100%' }} /></div>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', gap: 8 }}><Btn small color={T.ok} style={{ color: T.bg }} onClick={() => { editMetric(editing.id, { weight: editing.weight, bf: editing.bf, waist: editing.waist, armL: editing.armL, armR: editing.armR, chest: editing.chest }); setEditing(null) }}>✓ Salvar</Btn><Btn small ghost color={T.muted} onClick={() => setEditing(null)}>Cancelar</Btn></div>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderBottom: `1px solid ${T.border}` }}>
-                  <div style={{ flex: 1, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}><span style={{ fontSize: 10, color: T.muted, minWidth: 58, fontWeight: 600 }}>{m.date}</span><span style={{ fontWeight: 800, color: T.treino, fontSize: 12 }}>{m.weight}kg</span><span style={{ color: T.metrica, fontSize: 12, fontWeight: 800 }}>{m.bf}%</span>{m.waist && <span style={{ fontSize: 10, color: T.muted }}>C:{m.waist}</span>}</div>
-                  <button onClick={() => setEditing({ ...m })} style={{ background: 'none', border: 'none', color: T.horm, cursor: 'pointer' }}>✏️</button>
-                  <button onClick={() => removeMetric(m.id, `Medição ${m.date}`)} style={{ background: 'none', border: 'none', color: T.alert, cursor: 'pointer' }}><X size={14} /></button>
-                </div>
-              )}
-            </div>
-          ))}
-        </Card>
-      )}
+      {sorted.length > 0 && (<Card><Lbl>Histórico de Medições</Lbl>{[...sorted].reverse().map(m => (<div key={m.id}>{editing?.id === m.id ? (<div style={{ padding: '10px 0', borderBottom: `1px solid ${T.border}` }}><div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 }}>{[{ l: 'Peso', k: 'weight' }, { l: 'BF%', k: 'bf' }, { l: 'Cintura', k: 'waist' }, { l: 'Peito', k: 'chest' }, { l: 'B.Esq', k: 'armL' }, { l: 'B.Dir', k: 'armR' }].map(f => (<div key={f.k}><div style={{ fontSize: 9, color: T.muted, marginBottom: 3, fontWeight: 700 }}>{f.l}</div><Inp value={editing[f.k] || ''} onChange={v => setEditing({ ...editing, [f.k]: v })} style={{ width: '100%' }} /></div>))}</div><div style={{ display: 'flex', gap: 8 }}><Btn small color={T.ok} style={{ color: T.bg }} onClick={() => { editMetric(editing.id, { weight: editing.weight, bf: editing.bf, waist: editing.waist, armL: editing.armL, armR: editing.armR, chest: editing.chest }); setEditing(null) }}>✓ Salvar</Btn><Btn small ghost color={T.muted} onClick={() => setEditing(null)}>Cancelar</Btn></div></div>) : (<div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderBottom: `1px solid ${T.border}` }}><div style={{ flex: 1, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}><span style={{ fontSize: 10, color: T.muted, minWidth: 58, fontWeight: 600 }}>{m.date}</span><span style={{ fontWeight: 800, color: T.treino, fontSize: 12 }}>{m.weight}kg</span><span style={{ color: T.metrica, fontSize: 12, fontWeight: 800 }}>{m.bf}%</span>{m.waist && <span style={{ fontSize: 10, color: T.muted }}>C:{m.waist}</span>}</div><button onClick={() => setEditing({ ...m })} style={{ background: 'none', border: 'none', color: T.horm, cursor: 'pointer' }}>✏️</button><button onClick={() => removeMetric(m.id, `Medição ${m.date}`)} style={{ background: 'none', border: 'none', color: T.alert, cursor: 'pointer' }}><X size={14} /></button></div>)}</div>))}</Card>)}
     </div>
   )
 }
@@ -1183,133 +1268,66 @@ function BodyTab({ metrics, profile, addMetric, editMetric, removeMetric, photos
 // ─── ANÁLISE ──────────────────────────────────────────────────────────────────
 function AnaliseTab({ metrics, workout, cardioLogs, dietaLogs, nutrition }) {
   const sorted = [...metrics].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0))
-  const last = sorted[sorted.length - 1]
-  const prev = sorted[sorted.length - 2]
-
-  // Últimos 7 dias
+  const last = sorted[sorted.length - 1]; const prev = sorted[sorted.length - 2]
   const days7 = Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - i); return d.toISOString().slice(0, 10) }).reverse()
   const treinosUlt7 = days7.filter(d => workout.some(w => w.created_at?.slice(0, 10) === d)).length
   const cardioUlt7  = days7.filter(d => cardioLogs.some(c => c.date === d || c.created_at?.slice(0, 10) === d)).length
   const dietaUlt7   = days7.filter(d => dietaLogs.some(dl => (dl.date === d || dl.created_at?.slice(0, 10) === d) && dl.ate)).length
-
   const consistTreino = Math.round((treinosUlt7 / 6) * 100)
   const consistCardio = Math.round((cardioUlt7  / 5) * 100)
   const consistDieta  = Math.round((dietaUlt7   / 7) * 100)
-
-  // Alertas
   const alertas = []
   if (consistTreino < 50) alertas.push({ msg: 'Consistência de treino abaixo de 50% na semana', level: 'alert' })
   if (consistCardio < 40) alertas.push({ msg: 'Cardio insuficiente — menos de 2x na semana', level: 'warn' })
   if (consistDieta < 60) alertas.push({ msg: 'Dieta irregular — marque suas refeições', level: 'warn' })
   if (last && prev) {
-    const diffBf = parseFloat(last.bf) - parseFloat(prev.bf)
-    const diffKg = parseFloat(last.weight) - parseFloat(prev.weight)
+    const diffBf = parseFloat(last.bf) - parseFloat(prev.bf); const diffKg = parseFloat(last.weight) - parseFloat(prev.weight)
     if (diffBf > 0.5) alertas.push({ msg: `BF% subiu ${diffBf.toFixed(1)}% desde a última medição`, level: 'alert' })
-    if (diffKg > 1.5) alertas.push({ msg: `Peso subiu ${diffKg.toFixed(1)}kg — avaliar retenção`, level: 'warn' })
     if (diffBf < -0.3 && diffKg < 0) alertas.push({ msg: `Evolução positiva: -${Math.abs(diffBf).toFixed(1)}% BF e -${Math.abs(diffKg).toFixed(1)}kg`, level: 'ok' })
   }
-
-  const chartData = days7.map(d => ({
-    n: d.slice(5),
-    treino: workout.filter(w => w.created_at?.slice(0, 10) === d).length > 0 ? 1 : 0,
-    cardio: cardioLogs.filter(c => c.date === d || c.created_at?.slice(0, 10) === d).length > 0 ? 1 : 0,
-  }))
-
-  const tendencia = () => {
-    if (!last || !prev) return null
-    const bf = parseFloat(last.bf) - parseFloat(prev.bf)
-    const kg = parseFloat(last.weight) - parseFloat(prev.weight)
-    if (bf < 0 && kg < 0) return { label: 'Cutting ativo', color: T.ok, icon: '🔥' }
-    if (bf < 0 && kg > 0) return { label: 'Recomposição', color: T.treino, icon: '⚡' }
-    if (kg > 0) return { label: 'Ganho de massa', color: T.horm, icon: '📈' }
-    return { label: 'Estável', color: T.muted, icon: '→' }
-  }
-  const tend = tendencia()
-
+  const chartData = days7.map(d => ({ n: d.slice(5), treino: workout.filter(w => w.created_at?.slice(0, 10) === d).length > 0 ? 1 : 0, cardio: cardioLogs.filter(c => c.date === d || c.created_at?.slice(0, 10) === d).length > 0 ? 1 : 0 }))
+  const tend = () => { if (!last || !prev) return null; const bf = parseFloat(last.bf) - parseFloat(prev.bf); const kg = parseFloat(last.weight) - parseFloat(prev.weight); if (bf < 0 && kg < 0) return { label: 'Cutting ativo', color: T.ok, icon: '🔥' }; if (bf < 0 && kg > 0) return { label: 'Recomposição', color: T.treino, icon: '⚡' }; if (kg > 0) return { label: 'Ganho de massa', color: T.horm, icon: '📈' }; return { label: 'Estável', color: T.muted, icon: '→' } }
+  const t = tend()
   return (
     <div>
-      <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: -1.5, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 12 }}><BarChart2 size={24} color={T.gold} strokeWidth={1.5} /> Análise</div>
+      <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: -1.5, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 10 }}><BarChart2 size={22} color={T.gold} strokeWidth={1.5} /> Análise</div>
       <div style={{ fontSize: 12, color: T.muted, marginBottom: 16, fontWeight: 600 }}>Últimos 7 dias</div>
-
-      {/* Tendência */}
-      {tend && (
-        <Card color={tend.color}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <div style={{ fontSize: 36 }}>{tend.icon}</div>
-            <div>
-              <div style={{ fontSize: 11, color: T.muted, fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase' }}>Tendência atual</div>
-              <div style={{ fontSize: 22, fontWeight: 900, color: tend.color, letterSpacing: -1 }}>{tend.label}</div>
-            </div>
-          </div>
-        </Card>
-      )}
-
-      {/* Alertas */}
-      {alertas.length > 0 && (
-        <Card>
-          <Lbl>Alertas & Insights</Lbl>
-          {alertas.map((a, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', padding: '8px 0', borderBottom: i < alertas.length - 1 ? `1px solid ${T.border}` : 'none' }}>
-              <StatusDot status={a.level} />
-              <div style={{ fontSize: 12, color: T.text, lineHeight: 1.5 }}>{a.msg}</div>
-            </div>
-          ))}
-        </Card>
-      )}
-
-      {/* Consistência */}
+      {t && (<Card color={t.color}><div style={{ display: 'flex', alignItems: 'center', gap: 16 }}><div style={{ fontSize: 36 }}>{t.icon}</div><div><div style={{ fontSize: 11, color: T.muted, fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase' }}>Tendência</div><div style={{ fontSize: 22, fontWeight: 900, color: t.color, letterSpacing: -1 }}>{t.label}</div></div></div></Card>)}
+      {alertas.length > 0 && (<Card><Lbl>Alertas & Insights</Lbl>{alertas.map((a, i) => (<div key={i} style={{ display: 'flex', alignItems: 'flex-start', padding: '8px 0', borderBottom: i < alertas.length - 1 ? `1px solid ${T.border}` : 'none' }}><StatusDot status={a.level} /><div style={{ fontSize: 12, color: T.text, lineHeight: 1.5 }}>{a.msg}</div></div>))}</Card>)}
       <Card>
         <Lbl>Consistência — 7 dias</Lbl>
-        {[{ l: 'Treinos', v: consistTreino, sub: `${treinosUlt7}/6 sessões`, c: T.treino }, { l: 'Cardio', v: consistCardio, sub: `${cardioUlt7}/5 sessões`, c: T.ok }, { l: 'Dieta', v: consistDieta, sub: `${dietaUlt7}/7 dias`, c: T.nutri }].map(s => (
+        {[{ l: 'Treinos', v: consistTreino, sub: `${treinosUlt7}/6`, c: T.treino }, { l: 'Cardio', v: consistCardio, sub: `${cardioUlt7}/5`, c: T.ok }, { l: 'Dieta', v: consistDieta, sub: `${dietaUlt7}/7 dias`, c: T.nutri }].map(s => (
           <div key={s.l} style={{ marginBottom: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6, fontWeight: 700 }}>
-              <span style={{ color: T.text }}>{s.l} <span style={{ color: T.muted, fontWeight: 500, fontSize: 11 }}>{s.sub}</span></span>
-              <span style={{ color: s.c }}>{s.v}%</span>
-            </div>
-            <div style={{ background: T.faint, borderRadius: 4, height: 6, overflow: 'hidden' }}>
-              <div style={{ width: `${s.v}%`, height: '100%', background: `linear-gradient(90deg,${s.c}CC,${s.c})`, borderRadius: 4, transition: 'width 1s ease', boxShadow: s.v > 0 ? `0 0 6px ${s.c}60` : 'none' }} />
-            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 5, fontWeight: 700 }}><span style={{ color: T.text }}>{s.l} <span style={{ color: T.muted, fontWeight: 500, fontSize: 11 }}>{s.sub}</span></span><span style={{ color: s.c }}>{s.v}%</span></div>
+            <div style={{ background: T.faint, borderRadius: 4, height: 6, overflow: 'hidden' }}><div style={{ width: `${s.v}%`, height: '100%', background: `linear-gradient(90deg,${s.c}CC,${s.c})`, borderRadius: 4, transition: 'width 1s ease' }} /></div>
           </div>
         ))}
       </Card>
-
-      {/* Atividade 7 dias */}
       <Card>
         <Lbl>Atividade — 7 dias</Lbl>
         <div style={{ display: 'flex', gap: 6 }}>
           {chartData.map((d, i) => (
             <div key={i} style={{ flex: 1, textAlign: 'center' }}>
               <div style={{ height: 40, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 3, marginBottom: 6 }}>
-                <div style={{ height: d.treino ? 20 : 0, background: T.treino, borderRadius: 4, transition: 'height .5s ease', opacity: d.treino ? 1 : 0.2, minHeight: 4 }} />
-                <div style={{ height: d.cardio ? 16 : 0, background: T.ok, borderRadius: 4, transition: 'height .5s ease', opacity: d.cardio ? 1 : 0.2, minHeight: 4 }} />
+                <div style={{ height: d.treino ? 20 : 4, background: d.treino ? T.treino : T.faint, borderRadius: 4, transition: 'height .5s ease' }} />
+                <div style={{ height: d.cardio ? 16 : 4, background: d.cardio ? T.ok : T.faint, borderRadius: 4, transition: 'height .5s ease' }} />
               </div>
               <div style={{ fontSize: 8, color: T.muted, fontWeight: 700 }}>{d.n.slice(3)}</div>
             </div>
           ))}
         </div>
-        <div style={{ display: 'flex', gap: 16, marginTop: 12 }}>
+        <div style={{ display: 'flex', gap: 16, marginTop: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}><div style={{ width: 10, height: 10, background: T.treino, borderRadius: 2 }} /><span style={{ fontSize: 10, color: T.muted }}>Treino</span></div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}><div style={{ width: 10, height: 10, background: T.ok, borderRadius: 2 }} /><span style={{ fontSize: 10, color: T.muted }}>Cardio</span></div>
         </div>
       </Card>
-
-      {/* Evolução corporal */}
       {last && prev && (
         <Card color={T.metrica}>
           <Lbl color={T.metrica}>Variação Corporal</Lbl>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {[{ l: 'Peso', cur: last.weight, ant: prev.weight, u: 'kg', c: T.treino }, { l: 'BF%', cur: last.bf, ant: prev.bf, u: '%', c: T.metrica }].map(s => {
-              const diff = (parseFloat(s.cur) - parseFloat(s.ant)).toFixed(1)
-              const up = parseFloat(diff) > 0
-              return (
-                <div key={s.l} style={{ background: T.faint, borderRadius: 14, padding: '14px' }}>
-                  <div style={{ fontSize: 10, color: T.muted, fontWeight: 700, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>{s.l}</div>
-                  <div style={{ fontSize: 22, fontWeight: 900, color: s.c, letterSpacing: -1 }}>{s.cur}{s.u}</div>
-                  <div style={{ fontSize: 11, color: up ? T.alert : T.ok, fontWeight: 700, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    {up ? <TrendingUp size={12} /> : <TrendingDown size={12} />} {up ? '+' : ''}{diff}{s.u}
-                  </div>
-                </div>
-              )
+              const diff = (parseFloat(s.cur) - parseFloat(s.ant)).toFixed(1); const up = parseFloat(diff) > 0
+              return (<div key={s.l} style={{ background: T.faint, borderRadius: 14, padding: '14px' }}><div style={{ fontSize: 10, color: T.muted, fontWeight: 700, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1 }}>{s.l}</div><div style={{ fontSize: 22, fontWeight: 900, color: s.c, letterSpacing: -1 }}>{s.cur}{s.u}</div><div style={{ fontSize: 11, color: up ? T.alert : T.ok, fontWeight: 700, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>{up ? <TrendingUp size={12} /> : <TrendingDown size={12} />} {up ? '+' : ''}{diff}{s.u}</div></div>)
             })}
           </div>
         </Card>
@@ -1318,30 +1336,38 @@ function AnaliseTab({ metrics, workout, cardioLogs, dietaLogs, nutrition }) {
   )
 }
 
-// ─── PERFIL ───────────────────────────────────────────────────────────────────
+// ─── PERFIL (com crop editor + persistência) ─────────────────────────────────
 function PerfilTab({ profile, setProfile }) {
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState({ ...profile })
+  const [cropSrc, setCropSrc] = useState(null)
   const fileRef = useRef(null)
 
-  const handlePhoto = (e) => {
+  const handlePhotoSelect = (e) => {
     const file = e.target.files[0]; if (!file) return
     const reader = new FileReader()
-    reader.onload = (ev) => { setForm(f => ({ ...f, photo: ev.target.result })) }
+    reader.onload = (ev) => setCropSrc(ev.target.result)
     reader.readAsDataURL(file)
+    e.target.value = ''
+  }
+
+  const handleCropSave = (croppedBase64) => {
+    setForm(f => ({ ...f, photo: croppedBase64 }))
+    setCropSrc(null)
   }
 
   const save = () => { setProfile(form); setEditing(false) }
 
   return (
     <div>
-      <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: -1.5, marginBottom: 20 }}>Perfil</div>
+      {cropSrc && <AvatarCropEditor src={cropSrc} onSave={handleCropSave} onCancel={() => setCropSrc(null)} />}
 
-      {/* Avatar grande */}
+      <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: -1.5, marginBottom: 20 }}>Perfil</div>
+
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 24 }}>
         <div style={{ position: 'relative', marginBottom: 12 }}>
-          <div style={{ width: 100, height: 100, borderRadius: '50%', background: form.photo ? 'transparent' : `linear-gradient(135deg,${T.treino},#8BC34A)`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.bg, fontWeight: 900, fontSize: 36, overflow: 'hidden', border: `3px solid ${T.treino}50`, boxShadow: `0 0 24px ${T.treino}30` }}>
-            {form.photo ? <img src={form.photo} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : form.name[0]}
+          <div style={{ width: 100, height: 100, borderRadius: '50%', background: (form.photo || profile.photo) ? 'transparent' : `linear-gradient(135deg,${T.treino},#8BC34A)`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.bg, fontWeight: 900, fontSize: 36, overflow: 'hidden', border: `3px solid ${T.treino}50`, boxShadow: `0 0 24px ${T.treino}30` }}>
+            {(form.photo || profile.photo) ? <img src={form.photo || profile.photo} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : form.name[0]}
           </div>
           {editing && (
             <button onClick={() => fileRef.current?.click()} style={{ position: 'absolute', bottom: 0, right: 0, width: 32, height: 32, borderRadius: '50%', background: T.treino, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1349,7 +1375,7 @@ function PerfilTab({ profile, setProfile }) {
             </button>
           )}
         </div>
-        <input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} style={{ display: 'none' }} />
+        <input ref={fileRef} type="file" accept="image/*" onChange={handlePhotoSelect} style={{ display: 'none' }} />
         {!editing && (
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: -1 }}>{profile.name}</div>
@@ -1379,7 +1405,7 @@ function PerfilTab({ profile, setProfile }) {
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
               <Btn full ghost color={T.muted} onClick={() => { setForm({ ...profile }); setEditing(false) }} small>Cancelar</Btn>
-              <Btn full color={T.treino} onClick={save} small>Salvar</Btn>
+              <Btn full color={T.treino} style={{ color: T.bg }} onClick={save} small>Salvar</Btn>
             </div>
           </div>
         </Card>
