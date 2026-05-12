@@ -57,5 +57,10 @@ export default function Sidebar({ page, setPage }) {
         })}
       </nav>
 
-      {/* Rodapé */}
+      <div style={{ marginTop: 'auto', paddingTop: 20, borderTop: '1px solid #2E2A24' }}>
+        <div style={{ fontSize: 10, color: '#7A7268', lineHeight: 1.6 }}>
+          Thomas Altenhofen<br />
+          Fase 1 · Cutting 2026
+        </div>
+      </div>
       <div style={{ marginTop: 'auto'
