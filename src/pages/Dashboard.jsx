@@ -1,24 +1,22 @@
-export default function Dashboard({ setPage, activePage }) {
-  const [section, setSection] = useState(activePage === 'dashboard' ? 'treino' : activePage)
-import { T, SPLIT, EXERCISES, WARMUPS, USER_PROFILE, PROGRAM_SCHEDULE, DIET, PROTOCOL_COMPOUNDS, SUPLS, PILARES } from '../lib/constants'
+import { useState } from 'react'
+import { T, USER_PROFILE, DIET, PROTOCOL_COMPOUNDS, SUPLS } from '../lib/constants'
 import PhaseProgressCard from '../components/PhaseProgressCard'
 import WorkoutManager from '../components/WorkoutManager'
 import HealthDashboard from '../components/HealthDashboard'
 
-export default function Dashboard({ setPage }) {
+export default function Dashboard({ setPage, activePage }) {
   const [section, setSection] = useState('treino')
 
   const sections = [
-    { id: 'treino',  label: '🏋️ Treino'    },
-    { id: 'nutri',   label: '🥗 Nutrição'   },
-    { id: 'saude',   label: '🩸 Saúde'      },
-    { id: 'perfil',  label: '👤 Perfil'     },
+    { id: 'treino', label: '🏋️ Treino'  },
+    { id: 'nutri',  label: '🥗 Nutrição' },
+    { id: 'saude',  label: '🩸 Saúde'    },
+    { id: 'perfil', label: '👤 Perfil'   },
   ]
 
   return (
     <div style={{ padding: '24px 20px', maxWidth: 720, margin: '0 auto' }}>
 
-      {/* Header */}
       <div style={{ marginBottom: 24 }}>
         <div style={{ fontSize: 11, color: T.gold, fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 4 }}>
           Atlas Fitness
@@ -31,12 +29,10 @@ export default function Dashboard({ setPage }) {
         </div>
       </div>
 
-      {/* Card de progresso */}
       <div style={{ marginBottom: 24 }}>
         <PhaseProgressCard />
       </div>
 
-      {/* Stats rápidos */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 24 }}>
         {[
           { label: 'Peso',    value: USER_PROFILE.weight + 'kg', color: T.text },
@@ -55,7 +51,6 @@ export default function Dashboard({ setPage }) {
         ))}
       </div>
 
-      {/* Navegação de seções */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 20, overflowX: 'auto', paddingBottom: 4 }}>
         {sections.map(s => (
           <button key={s.id} onClick={() => setSection(s.id)} style={{
@@ -70,7 +65,6 @@ export default function Dashboard({ setPage }) {
         ))}
       </div>
 
-      {/* Conteúdo da seção ativa */}
       {section === 'treino' && <WorkoutManager />}
       {section === 'saude'  && <HealthDashboard />}
       {section === 'nutri'  && <NutriSection />}
@@ -93,14 +87,10 @@ function NutriSection() {
               <span style={{ fontSize: 11, color: T.gold, fontWeight: 700 }}>{meal.time}</span>
               <span style={{ fontSize: 13, color: T.text, fontWeight: 700, marginLeft: 10 }}>{meal.label}</span>
             </div>
-            <div style={{ fontSize: 11, color: T.muted }}>
-              {meal.kcal} kcal · {meal.prot}g prot
-            </div>
+            <div style={{ fontSize: 11, color: T.muted }}>{meal.kcal} kcal · {meal.prot}g prot</div>
           </div>
           {meal.options.map((opt, i) => (
-            <div key={i} style={{ fontSize: 12, color: T.muted, marginTop: 4, lineHeight: 1.5 }}>
-              · {opt}
-            </div>
+            <div key={i} style={{ fontSize: 12, color: T.muted, marginTop: 4, lineHeight: 1.5 }}>· {opt}</div>
           ))}
         </div>
       ))}
@@ -111,9 +101,9 @@ function NutriSection() {
       }}>
         {[
           { label: 'Calorias', value: '2.350 kcal' },
-          { label: 'Proteína', value: '215g'        },
-          { label: 'Carbs',    value: '220g'        },
-          { label: 'Gordura',  value: '65g'         },
+          { label: 'Proteína', value: '215g' },
+          { label: 'Carbs',    value: '220g' },
+          { label: 'Gordura',  value: '65g'  },
         ].map((m, i) => (
           <div key={i} style={{ textAlign: 'center' }}>
             <div style={{ fontSize: 14, color: T.gold, fontWeight: 800 }}>{m.value}</div>
@@ -134,11 +124,11 @@ function PerfilSection() {
         borderRadius: 12, padding: '20px', marginBottom: 16,
       }}>
         {[
-          { label: 'Nome',   value: USER_PROFILE.name   },
-          { label: 'Idade',  value: USER_PROFILE.age + ' anos' },
-          { label: 'Peso',   value: USER_PROFILE.weight + ' kg' },
-          { label: 'Altura', value: USER_PROFILE.height + ' m'  },
-          { label: 'Fase',   value: USER_PROFILE.phase   },
+          { label: 'Nome',        value: USER_PROFILE.name },
+          { label: 'Idade',       value: USER_PROFILE.age + ' anos' },
+          { label: 'Peso',        value: USER_PROFILE.weight + ' kg' },
+          { label: 'Altura',      value: USER_PROFILE.height + ' m' },
+          { label: 'Fase',        value: USER_PROFILE.phase },
           { label: 'Fim da fase', value: USER_PROFILE.phaseEnd },
         ].map((r, i) => (
           <div key={i} style={{
@@ -160,9 +150,7 @@ function PerfilSection() {
         }}>
           <div>
             <div style={{ fontSize: 13, color: c.color, fontWeight: 700 }}>{c.name}</div>
-            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
-              {c.dose} {c.unit} · {c.schedule}
-            </div>
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{c.dose} {c.unit} · {c.schedule}</div>
           </div>
           <div style={{ fontSize: 12, color: T.muted }}>{c.weekly}/sem</div>
         </div>
