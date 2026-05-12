@@ -16,7 +16,7 @@ export default function App() {
     }}>
       <Sidebar page={page} setPage={setPage} />
       <main style={{ flex: 1, overflowY: 'auto', minHeight: '100vh' }}>
-        {page === 'dashboard' && <Dashboard setPage={setPage} />}
+        <Dashboard setPage={setPage} activePage={page} />
       </main>
     </div>
   )

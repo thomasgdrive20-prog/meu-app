@@ -1,4 +1,5 @@
-import { useState } from 'react'
+export default function Dashboard({ setPage, activePage }) {
+  const [section, setSection] = useState(activePage === 'dashboard' ? 'treino' : activePage)
 import { T, SPLIT, EXERCISES, WARMUPS, USER_PROFILE, PROGRAM_SCHEDULE, DIET, PROTOCOL_COMPOUNDS, SUPLS, PILARES } from '../lib/constants'
 import PhaseProgressCard from '../components/PhaseProgressCard'
 import WorkoutManager from '../components/WorkoutManager'
