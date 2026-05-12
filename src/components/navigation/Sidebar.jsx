@@ -1,14 +1,13 @@
 import { T } from '../../lib/constants'
 
 const NAV = [
-  { id: 'dashboard', label: 'Dashboard', emoji: '⚡' },
-  { id: 'treino',    label: 'Treinos',   emoji: '🏋️' },
-  { id: 'nutri',     label: 'Nutrição',  emoji: '🥗' },
-  { id: 'saude',     label: 'Saúde',     emoji: '🩸' },
-  { id: 'perfil',    label: 'Perfil',    emoji: '👤' },
+  { id: 'treino',  label: 'Treinos',   emoji: '🏋️' },
+  { id: 'nutri',   label: 'Nutrição',  emoji: '🥗' },
+  { id: 'saude',   label: 'Saúde',     emoji: '🩸' },
+  { id: 'perfil',  label: 'Perfil',    emoji: '👤' },
 ]
 
-export default function Sidebar({ page, setPage }) {
+export default function Sidebar({ section, setSection }) {
   return (
     <div style={{
       width: 220,
@@ -35,11 +34,11 @@ export default function Sidebar({ page, setPage }) {
 
       <nav style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {NAV.map(item => {
-          const active = page === item.id
+          const active = section === item.id
           return (
             <button
               key={item.id}
-              onClick={() => setPage(item.id)}
+              onClick={() => setSection(item.id)}
               style={{
                 display: 'flex',
                 alignItems: 'center',

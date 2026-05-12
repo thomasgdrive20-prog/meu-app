@@ -4,9 +4,7 @@ import PhaseProgressCard from '../components/PhaseProgressCard'
 import WorkoutManager from '../components/WorkoutManager'
 import HealthDashboard from '../components/HealthDashboard'
 
-export default function Dashboard({ setPage, activePage }) {
-  const [section, setSection] = useState('treino')
-
+export default function Dashboard({ section, setSection }) {
   const sections = [
     { id: 'treino', label: '🏋️ Treino'  },
     { id: 'nutri',  label: '🥗 Nutrição' },

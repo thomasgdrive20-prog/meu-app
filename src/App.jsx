@@ -4,7 +4,7 @@ import Dashboard from './pages/Dashboard'
 import { T } from './lib/constants'
 
 export default function App() {
-  const [page, setPage] = useState('dashboard')
+  const [section, setSection] = useState('treino')
 
   return (
     <div style={{
@@ -14,9 +14,9 @@ export default function App() {
       color: T.text,
       fontFamily: "'Lato', sans-serif",
     }}>
-      <Sidebar page={page} setPage={setPage} />
+      <Sidebar section={section} setSection={setSection} />
       <main style={{ flex: 1, overflowY: 'auto', minHeight: '100vh' }}>
-        <Dashboard setPage={setPage} activePage={page} />
+        <Dashboard section={section} setSection={setSection} />
       </main>
     </div>
   )
