@@ -1,62 +1,22 @@
-import Sidebar from "./components/navigation/Sidebar"
+import { useState } from 'react'
+import Sidebar from './components/navigation/Sidebar'
+import Dashboard from './pages/Dashboard'
+import { T } from './lib/constants'
 
 export default function App() {
+  const [page, setPage] = useState('dashboard')
+
   return (
-    <div
-      style={{
-        display: "flex",
-        background: "#0B0F19",
-        minHeight: "100vh",
-        color: "white",
-      }}
-    >
-      <Sidebar />
-
-      <main style={{ padding: "40px", flex: 1 }}>
-        <h1 style={{ fontSize: "48px", marginBottom: "30px" }}>
-          Dashboard
-        </h1>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: "20px",
-          }}
-        >
-          <div
-            style={{
-              background: "#161B22",
-              padding: "30px",
-              borderRadius: "20px",
-            }}
-          >
-            <p>Peso Atual</p>
-            <h2>92kg</h2>
-          </div>
-
-          <div
-            style={{
-              background: "#161B22",
-              padding: "30px",
-              borderRadius: "20px",
-            }}
-          >
-            <p>BF Estimado</p>
-            <h2>18%</h2>
-          </div>
-
-          <div
-            style={{
-              background: "#161B22",
-              padding: "30px",
-              borderRadius: "20px",
-            }}
-          >
-            <p>Treinos Semana</p>
-            <h2>6x</h2>
-          </div>
-        </div>
+    <div style={{
+      display: 'flex',
+      background: T.bg,
+      minHeight: '100vh',
+      color: T.text,
+      fontFamily: "'Lato', sans-serif",
+    }}>
+      <Sidebar page={page} setPage={setPage} />
+      <main style={{ flex: 1, overflowY: 'auto', minHeight: '100vh' }}>
+        {page === 'dashboard' && <Dashboard setPage={setPage} />}
       </main>
     </div>
   )
