@@ -1,15 +1,21 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { LogOut, Camera, Edit2, X } from 'lucide-react'
+import useAppStore from '../stores/useAppStore'
 import { supabase } from '../lib/supabaseClient'
 import { USER_PROFILE, SUPLS, PROTOCOL_COMPOUNDS, T } from '../lib/constants'
-import { LogOut, Camera, Edit2, Check, X } from 'lucide-react'
+
+const todayStr = () => new Date().toISOString().slice(0, 10)
 
 export default function PerfilPage({ session, handleLogout }) {
-  const uid     = session.user.id
+  const uid = session.user.id
   const fileRef = useRef()
-  const [photo, setPhoto]     = useState(session.user.user_metadata?.avatar_url || null)
-  const [tab, setTab]         = useState('perfil')
+  const { suplDone, toggleSupl } = useAppStore()
+
+  const [photo, setPhoto] = useState(session.user.user_metadata?.avatar_url || null)
+  const [tab, setTab] = useState('perfil')
   const [editing, setEditing] = useState(false)
-  const [saving, setSaving]   = useState(false)
+  const [saving, setSaving] = useState(false)
   const [profile, setProfile] = useState({
     name:     USER_PROFILE.name,
     age:      USER_PROFILE.age,
@@ -22,49 +28,9 @@ export default function PerfilPage({ session, handleLogout }) {
   })
   const [form, setForm] = useState(profile)
 
-  // Protocolo check por dia
-  const todayStr = () => new Date().toISOString().slice(0, 10)
-  const [protoDone, setProtoDone] = useState([])
-
-  useEffect(() => {
-    loadProfile()
-    loadProtoChecks()
-  }, [])
-
-  const loadProfile = async () => {
-    const { data } = await supabase
-      .from('user_profile')
-      .select('*')
-      .eq('user_id', uid)
-      .single()
-    if (data) {
-      const p = {
-        name:     data.name     || USER_PROFILE.name,
-        age:      data.age      || USER_PROFILE.age,
-        weight:   data.weight   || USER_PROFILE.weight,
-        height:   data.height   || USER_PROFILE.height,
-        phase:    data.phase    || USER_PROFILE.phase,
-        phaseEnd: data.phase_end || USER_PROFILE.phaseEnd,
-        bfMeta:   data.bf_meta  || USER_PROFILE.bfMeta,
-        objetivo: data.objetivo || USER_PROFILE.objetivo,
-      }
-      setProfile(p)
-      setForm(p)
-    }
-  }
-
-  const loadProtoChecks = async () => {
-    const { data } = await supabase
-      .from('supl_logs')
-      .select('supl_id')
-      .eq('user_id', uid)
-      .gte('created_at', todayStr())
-    if (data) setProtoDone(data.map(d => d.supl_id))
-  }
-
   const saveProfile = async () => {
     setSaving(true)
-    const upsertData = {
+    await supabase.from('user_profile').upsert({
       user_id:   uid,
       name:      form.name,
       age:       form.age,
@@ -74,26 +40,15 @@ export default function PerfilPage({ session, handleLogout }) {
       phase_end: form.phaseEnd,
       bf_meta:   form.bfMeta,
       objetivo:  form.objetivo,
-    }
-    await supabase.from('user_profile').upsert(upsertData, { onConflict: 'user_id' })
+    }, { onConflict: 'user_id' })
     setProfile(form)
     setEditing(false)
     setSaving(false)
   }
 
-  const toggleProto = async (id) => {
-    if (protoDone.includes(id)) {
-      await supabase.from('supl_logs').delete().eq('user_id', uid).eq('supl_id', id).gte('created_at', todayStr())
-      setProtoDone(prev => prev.filter(x => x !== id))
-    } else {
-      await supabase.from('supl_logs').insert({ user_id: uid, supl_id: id })
-      setProtoDone(prev => [...prev, id])
-    }
-  }
-
   const tabs = [
-    { id: 'perfil',    label: 'Perfil'    },
-    { id: 'protocolo', label: 'Protocolo' },
+    { id: 'perfil',    label: 'Perfil'      },
+    { id: 'protocolo', label: 'Protocolo'   },
     { id: 'supls',     label: 'Suplementos' },
   ]
 
@@ -107,11 +62,24 @@ export default function PerfilPage({ session, handleLogout }) {
     { label: 'Meta BF%',    key: 'bfMeta',   type: 'number' },
   ]
 
+  // Dias até o fim da fase
+  const daysLeft = (() => {
+    if (!profile.phaseEnd) return null
+    const end = new Date(profile.phaseEnd)
+    const now = new Date()
+    const diff = Math.ceil((end - now) / (1000 * 60 * 60 * 24))
+    return diff > 0 ? diff : 0
+  })()
+
   return (
     <div style={{ padding: '20px 16px', paddingTop: 'calc(env(safe-area-inset-top) + 20px)' }}>
 
       {/* Header com foto */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
+      <motion.div
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}
+      >
         <div style={{ position: 'relative' }}>
           <div
             onClick={() => fileRef.current?.click()}
@@ -127,12 +95,15 @@ export default function PerfilPage({ session, handleLogout }) {
               : <span style={{ fontSize: 28 }}>👤</span>
             }
           </div>
-          <div style={{
-            position: 'absolute', bottom: 0, right: 0,
-            width: 22, height: 22, borderRadius: '50%',
-            background: T.gold, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer',
-          }} onClick={() => fileRef.current?.click()}>
+          <div
+            onClick={() => fileRef.current?.click()}
+            style={{
+              position: 'absolute', bottom: 0, right: 0,
+              width: 22, height: 22, borderRadius: '50%',
+              background: T.gold, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer',
+            }}
+          >
             <Camera size={12} color="#111010" />
           </div>
         </div>
@@ -145,54 +116,70 @@ export default function PerfilPage({ session, handleLogout }) {
             reader.readAsDataURL(file)
           }}
         />
+
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 20, color: T.text, fontWeight: 800 }}>{profile.name}</div>
           <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>
             {profile.age} anos · {profile.weight}kg · {profile.height}m
           </div>
           <div style={{ fontSize: 11, color: T.gold, marginTop: 3 }}>{profile.phase}</div>
+          {daysLeft !== null && (
+            <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
+              {daysLeft} dias restantes na fase
+            </div>
+          )}
         </div>
-        <button onClick={handleLogout} style={{
-          width: 36, height: 36, borderRadius: 10,
-          background: `${T.alert}11`, border: `1px solid ${T.alert}33`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-        }}>
+
+        <motion.button
+          whileTap={{ scale: 0.9 }}
+          onClick={handleLogout}
+          style={{
+            width: 36, height: 36, borderRadius: 10,
+            background: `${T.alert}11`, border: `1px solid ${T.alert}33`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+          }}
+        >
           <LogOut size={16} color={T.alert} />
-        </button>
-      </div>
+        </motion.button>
+      </motion.div>
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
         {tabs.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{
-            flex: 1, padding: '8px', borderRadius: 10,
-            background: tab === t.id ? `${T.gold}22` : T.faint,
-            border: `1px solid ${tab === t.id ? T.gold + '66' : T.border}`,
-            color: tab === t.id ? T.gold : T.muted,
-            fontSize: 12, fontWeight: 600, cursor: 'pointer',
-          }}>{t.label}</button>
+          <motion.button key={t.id} whileTap={{ scale: 0.92 }} onClick={() => setTab(t.id)}
+            style={{
+              flex: 1, padding: '8px', borderRadius: 10,
+              background: tab === t.id ? `${T.gold}22` : T.faint,
+              border: `1px solid ${tab === t.id ? T.gold + '66' : T.border}`,
+              color: tab === t.id ? T.gold : T.muted,
+              fontSize: 12, fontWeight: 600, cursor: 'pointer',
+            }}>
+            {t.label}
+          </motion.button>
         ))}
       </div>
 
       {/* PERFIL */}
       {tab === 'perfil' && (
-        <div>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <div style={{ fontSize: 13, color: T.text, fontWeight: 700 }}>Dados pessoais</div>
-            <button onClick={() => { setForm(profile); setEditing(true) }} style={{
-              padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-              background: `${T.gold}22`, border: `1px solid ${T.gold}44`, color: T.gold,
-              display: 'flex', alignItems: 'center', gap: 6,
-            }}>
+            <motion.button whileTap={{ scale: 0.92 }} onClick={() => { setForm(profile); setEditing(true) }}
+              style={{
+                padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                background: `${T.gold}22`, border: `1px solid ${T.gold}44`, color: T.gold,
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}>
               <Edit2 size={12} /> Editar
-            </button>
+            </motion.button>
           </div>
 
-          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: '4px 16px', marginBottom: 20 }}>
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: '4px 16px', marginBottom: 16 }}>
             {fields.map((f, i) => (
               <div key={f.key} style={{
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                padding: '12px 0', borderBottom: i < fields.length - 1 ? `1px solid ${T.border}` : 'none',
+                padding: '12px 0',
+                borderBottom: i < fields.length - 1 ? `1px solid ${T.border}` : 'none',
               }}>
                 <span style={{ fontSize: 13, color: T.muted }}>{f.label}</span>
                 <span style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>{profile[f.key]}</span>
@@ -200,34 +187,57 @@ export default function PerfilPage({ session, handleLogout }) {
             ))}
           </div>
 
-          {/* Info da sessão */}
+          {/* Barra de progresso da fase */}
+          {daysLeft !== null && (
+            <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: '14px', marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontSize: 12, color: T.text, fontWeight: 600 }}>Progresso da fase</span>
+                <span style={{ fontSize: 11, color: T.gold }}>{daysLeft}d restantes</span>
+              </div>
+              <div style={{ height: 6, borderRadius: 999, background: T.border, overflow: 'hidden' }}>
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${Math.max(0, 100 - (daysLeft / 91) * 100)}%` }}
+                  transition={{ duration: 0.8 }}
+                  style={{ height: '100%', borderRadius: 999, background: `linear-gradient(90deg, ${T.gold}, ${T.treino})` }}
+                />
+              </div>
+              <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>
+                Meta: {profile.bfMeta}% BF · Objetivo até {profile.phaseEnd}
+              </div>
+            </div>
+          )}
+
           <div style={{ background: T.faint, border: `1px solid ${T.border}`, borderRadius: 12, padding: '12px 16px' }}>
             <div style={{ fontSize: 11, color: T.muted }}>Conta Google</div>
-            <div style={{ fontSize: 13, color: T.text, fontWeight: 600, marginTop: 4 }}>
-              {session.user.email}
-            </div>
+            <div style={{ fontSize: 13, color: T.text, fontWeight: 600, marginTop: 4 }}>{session.user.email}</div>
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* PROTOCOLO */}
       {tab === 'protocolo' && (
-        <div>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <div style={{ fontSize: 13, color: T.text, fontWeight: 700, marginBottom: 14 }}>
             Protocolo hormonal
             <span style={{ fontSize: 11, color: T.muted, fontWeight: 400, marginLeft: 8 }}>
-              {protoDone.length} aplicados hoje
+              {PROTOCOL_COMPOUNDS.filter(c => suplDone.includes(c.id)).length} aplicados hoje
             </span>
           </div>
-          {PROTOCOL_COMPOUNDS.map(c => {
-            const done = protoDone.includes(c.id)
+          {PROTOCOL_COMPOUNDS.map((c, i) => {
+            const done = suplDone.includes(c.id)
             return (
-              <div key={c.id} style={{
-                background: done ? `${T.ok}08` : T.faint,
-                border: `1px solid ${done ? T.ok + '44' : c.color + '33'}`,
-                borderRadius: 14, padding: '14px', marginBottom: 10,
-                transition: 'all 0.3s',
-              }}>
+              <motion.div key={c.id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.06 }}
+                style={{
+                  background: done ? `${T.ok}08` : T.faint,
+                  border: `1px solid ${done ? T.ok + '44' : c.color + '33'}`,
+                  borderRadius: 14, padding: '14px', marginBottom: 10,
+                  transition: 'all 0.3s',
+                }}
+              >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 14, color: done ? T.ok : c.color, fontWeight: 700 }}>{c.name}</div>
@@ -240,105 +250,126 @@ export default function PerfilPage({ session, handleLogout }) {
                       </div>
                     )}
                   </div>
-                  <button onClick={() => toggleProto(c.id)} style={{
-                    width: 40, height: 40, borderRadius: 10, flexShrink: 0, marginLeft: 12,
-                    border: `1px solid ${done ? T.ok + '55' : T.border}`,
-                    background: done ? `${T.ok}22` : T.card,
-                    color: done ? T.ok : T.muted,
-                    fontSize: 18, cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
+                  <motion.button whileTap={{ scale: 0.85 }} onClick={() => toggleSupl(c.id)}
+                    style={{
+                      width: 40, height: 40, borderRadius: 10, flexShrink: 0, marginLeft: 12,
+                      border: `1px solid ${done ? T.ok + '55' : T.border}`,
+                      background: done ? `${T.ok}22` : T.card,
+                      color: done ? T.ok : T.muted,
+                      fontSize: 18, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
                     {done ? '✓' : '+'}
-                  </button>
+                  </motion.button>
                 </div>
-              </div>
+              </motion.div>
             )
           })}
-        </div>
+        </motion.div>
       )}
 
       {/* SUPLEMENTOS */}
       {tab === 'supls' && (
-        <div>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <div style={{ fontSize: 13, color: T.text, fontWeight: 700, marginBottom: 14 }}>
             Suplementação ativa
           </div>
-          {SUPLS.map(s => {
-            const done = protoDone.includes(s.id)
+          {SUPLS.map((s, i) => {
+            const done = suplDone.includes(s.id)
             return (
-              <div key={s.id} style={{
-                background: done ? `${T.ok}08` : T.faint,
-                border: `1px solid ${done ? T.ok + '44' : T.border}`,
-                borderRadius: 14, padding: '14px', marginBottom: 10,
-                transition: 'all 0.3s',
-              }}>
+              <motion.div key={s.id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.06 }}
+                style={{
+                  background: done ? `${T.ok}08` : T.faint,
+                  border: `1px solid ${done ? T.ok + '44' : T.border}`,
+                  borderRadius: 14, padding: '14px', marginBottom: 10,
+                  transition: 'all 0.3s',
+                }}
+              >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <div style={{ fontSize: 14, color: done ? T.ok : s.color, fontWeight: 700 }}>{s.name}</div>
                     <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>{s.dose} · {s.time}</div>
                     {s.obs && <div style={{ fontSize: 11, color: T.muted, marginTop: 4, fontStyle: 'italic' }}>{s.obs}</div>}
                   </div>
-                  <button onClick={() => toggleProto(s.id)} style={{
-                    width: 40, height: 40, borderRadius: 10,
-                    border: `1px solid ${done ? T.ok + '55' : T.border}`,
-                    background: done ? `${T.ok}22` : T.card,
-                    color: done ? T.ok : T.muted,
-                    fontSize: 18, cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
+                  <motion.button whileTap={{ scale: 0.85 }} onClick={() => toggleSupl(s.id)}
+                    style={{
+                      width: 40, height: 40, borderRadius: 10,
+                      border: `1px solid ${done ? T.ok + '55' : T.border}`,
+                      background: done ? `${T.ok}22` : T.card,
+                      color: done ? T.ok : T.muted,
+                      fontSize: 18, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
                     {done ? '✓' : '+'}
-                  </button>
+                  </motion.button>
                 </div>
-              </div>
+              </motion.div>
             )
           })}
-        </div>
+        </motion.div>
       )}
 
       {/* Modal de edição */}
-      {editing && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#000000dd', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-          <div style={{
-            background: T.card, borderRadius: '20px 20px 0 0',
-            padding: '24px 20px', width: '100%', maxWidth: 428,
-            maxHeight: '85vh', overflowY: 'auto',
-            paddingBottom: 'calc(env(safe-area-inset-bottom) + 24px)',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <div style={{ fontSize: 16, color: T.gold, fontWeight: 700 }}>Editar Perfil</div>
-              <button onClick={() => setEditing(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}>
-                <X size={20} color={T.muted} />
-              </button>
-            </div>
-
-            {fields.map(f => (
-              <div key={f.key} style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: 0.8, display: 'block', marginBottom: 5 }}>
-                  {f.label}
-                </label>
-                <input
-                  type={f.type}
-                  value={form[f.key] ?? ''}
-                  onChange={e => setForm(prev => ({ ...prev, [f.key]: e.target.value }))}
-                  style={{
-                    width: '100%', padding: '12px 14px', borderRadius: 10,
-                    background: T.faint, border: `1px solid ${T.border}`,
-                    color: T.text, fontSize: 15, outline: 'none', boxSizing: 'border-box',
-                  }}
-                />
+      <AnimatePresence>
+        {editing && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#000000dd', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+          >
+            <motion.div
+              initial={{ y: 100 }}
+              animate={{ y: 0 }}
+              exit={{ y: 100 }}
+              style={{
+                background: T.card, borderRadius: '20px 20px 0 0',
+                padding: '24px 20px', width: '100%', maxWidth: 428,
+                maxHeight: '85vh', overflowY: 'auto',
+                paddingBottom: 'calc(env(safe-area-inset-bottom) + 24px)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <div style={{ fontSize: 16, color: T.gold, fontWeight: 700 }}>Editar Perfil</div>
+                <button onClick={() => setEditing(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}>
+                  <X size={20} color={T.muted} />
+                </button>
               </div>
-            ))}
 
-            <button onClick={saveProfile} disabled={saving} style={{
-              width: '100%', padding: '14px', borderRadius: 12, marginTop: 8,
-              background: `${T.gold}22`, border: `1px solid ${T.gold}66`,
-              color: T.gold, fontSize: 14, fontWeight: 800, cursor: 'pointer',
-            }}>
-              {saving ? 'Salvando...' : '💾 Salvar alterações'}
-            </button>
-          </div>
-        </div>
-      )}
+              {fields.map(f => (
+                <div key={f.key} style={{ marginBottom: 14 }}>
+                  <label style={{ fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: 0.8, display: 'block', marginBottom: 5 }}>
+                    {f.label}
+                  </label>
+                  <input
+                    type={f.type}
+                    value={form[f.key] ?? ''}
+                    onChange={e => setForm(prev => ({ ...prev, [f.key]: e.target.value }))}
+                    style={{
+                      width: '100%', padding: '12px 14px', borderRadius: 10,
+                      background: T.faint, border: `1px solid ${T.border}`,
+                      color: T.text, fontSize: 15, outline: 'none', boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+              ))}
+
+              <motion.button whileTap={{ scale: 0.97 }} onClick={saveProfile} disabled={saving}
+                style={{
+                  width: '100%', padding: '14px', borderRadius: 12, marginTop: 8,
+                  background: `${T.gold}22`, border: `1px solid ${T.gold}66`,
+                  color: T.gold, fontSize: 14, fontWeight: 800, cursor: 'pointer',
+                }}>
+                {saving ? 'Salvando...' : '💾 Salvar alterações'}
+              </motion.button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     </div>
   )
 }
