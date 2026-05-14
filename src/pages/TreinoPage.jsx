@@ -71,9 +71,9 @@ function RestTimer({ seconds, onDone }) {
 
 // ── Linha de série ────────────────────────────────────────────────────────────
 function SetRow({ setNum, lastLog, onSave }) {
-  const [weight, setWeight] = useState(lastLog?.weight || '')
-  const [reps, setReps] = useState(lastLog?.reps || '')
-  const [done, setDone] = useState(false)
+  const [weight, setWeight] = useState(lastLog?.weight ? String(lastLog.weight) : '')
+  const [reps, setReps]     = useState(lastLog?.reps   ? String(lastLog.reps)   : '')
+  const [done, setDone]     = useState(false)
 
   const handleDone = () => {
     if (!weight || !reps) return
@@ -83,40 +83,51 @@ function SetRow({ setNum, lastLog, onSave }) {
 
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 8,
-      padding: '8px 0', borderBottom: `1px solid ${T.border}`,
+      display: 'grid',
+      gridTemplateColumns: '24px 1fr 1fr 36px',
+      alignItems: 'center',
+      gap: 6,
+      padding: '8px 0',
+      borderBottom: `1px solid ${T.border}`,
     }}>
-      <span style={{ fontSize: 12, color: T.muted, width: 20, textAlign: 'center', flexShrink: 0 }}>
-        {setNum}
-      </span>
+      <span style={{ fontSize: 12, color: T.muted, textAlign: 'center' }}>{setNum}</span>
       <input
-        type="number" placeholder={lastLog?.weight ? String(lastLog.weight) : 'kg'}
-        value={weight} onChange={e => setWeight(e.target.value)}
+        type="number"
+        inputMode="decimal"
+        placeholder={lastLog?.weight ? String(lastLog.weight) : 'kg'}
+        value={weight}
+        onChange={e => setWeight(e.target.value)}
         style={{
-          flex: 1, padding: '8px', borderRadius: 8,
+          width: '100%', padding: '9px 4px', borderRadius: 8,
           background: T.faint, border: `1px solid ${done ? T.ok + '44' : T.border}`,
-          color: T.text, fontSize: 14, outline: 'none', textAlign: 'center',
+          color: T.text, fontSize: 15, outline: 'none', textAlign: 'center',
+          boxSizing: 'border-box',
         }}
       />
       <input
-        type="number" placeholder={lastLog?.reps ? String(lastLog.reps) : 'reps'}
-        value={reps} onChange={e => setReps(e.target.value)}
+        type="number"
+        inputMode="numeric"
+        placeholder={lastLog?.reps ? String(lastLog.reps) : 'reps'}
+        value={reps}
+        onChange={e => setReps(e.target.value)}
         style={{
-          flex: 1, padding: '8px', borderRadius: 8,
+          width: '100%', padding: '9px 4px', borderRadius: 8,
           background: T.faint, border: `1px solid ${done ? T.ok + '44' : T.border}`,
-          color: T.text, fontSize: 14, outline: 'none', textAlign: 'center',
+          color: T.text, fontSize: 15, outline: 'none', textAlign: 'center',
+          boxSizing: 'border-box',
         }}
       />
       <motion.button
         whileTap={{ scale: 0.85 }}
         onClick={handleDone}
         style={{
-          width: 36, height: 36, borderRadius: 8, flexShrink: 0,
+          width: 36, height: 36, borderRadius: 8,
           border: `1px solid ${done ? T.ok + '55' : T.border}`,
           background: done ? `${T.ok}22` : T.faint,
           color: done ? T.ok : T.muted,
-          fontSize: 16, cursor: 'pointer',
+          fontSize: 18, cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0,
         }}
       >
         {done ? '✓' : '○'}

@@ -39,9 +39,12 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
-  // Boot do store quando sessão muda
+  // Boot do store quando sessão muda — sempre re-busca do Supabase
   useEffect(() => {
     if (session?.user?.id) {
+      useAppStore.setState({
+        weights: [], metrics: [], healthLogs: [], exams: [], workoutLogs: [],
+      })
       boot(session.user.id)
     } else if (!session) {
       reset()
