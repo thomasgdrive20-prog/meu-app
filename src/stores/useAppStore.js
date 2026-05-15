@@ -1,17 +1,12 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import {
-  supabase, dbGet, dbGetToday, dbUpsertToday,
-  dbToggleDayLog, dbInsert, dbUpdate, dbDelete,
-  dbGetOne, dbLoadMany, todayDate,
-} from '../lib/supabaseClient'
+import { supabase, todayDate, dbUpdate, dbDelete } from '../lib/supabaseClient'
 
 const useAppStore = create(
   persist(
     (set, get) => ({
 
       userId: null,
-      setUserId: (id) => set({ userId: id }),
 
       syncMsg: '',
       setSyncMsg: (msg) => {
@@ -20,10 +15,6 @@ const useAppStore = create(
       },
 
       loading: true,
-      setLoading: (v) => set({ loading: v }),
-
-      confirm: null,
-      setConfirm: (v) => set({ confirm: v }),
 
       // ÁGUA
       water: 0,
@@ -32,18 +23,23 @@ const useAppStore = create(
       setWater: async (amount) => {
         const uid = get().userId
         const today = todayDate()
-        if (get().waterDate !== today) set({ water: 0, waterDate: today })
-        set({ water: amount })
-        if (uid) await dbUpsertToday('water_logs', uid, { amount_l: amount })
+        set({ water: amount, waterDate: today })
+        if (!uid) return
+        await supabase.from('water_logs').upsert(
+          { user_id: uid, date: today, amount_l: amount, updated_at: new Date().toISOString() },
+          { onConflict: 'user_id,date' }
+        )
+        get().setSyncMsg(amount === 0 ? '○ Água zerada' : `✓ ${amount}L registrado`)
       },
 
       loadWater: async () => {
         const uid = get().userId
-        const today = todayDate()
         if (!uid) return
-        const row = await dbGetOne('water_logs', uid, { date: today })
-        if (row) set({ water: parseFloat(row.amount_l) || 0, waterDate: today })
-        else if (get().waterDate !== today) set({ water: 0, waterDate: today })
+        const today = todayDate()
+        const { data } = await supabase
+          .from('water_logs').select('amount_l')
+          .eq('user_id', uid).eq('date', today).maybeSingle()
+        set({ water: data ? parseFloat(data.amount_l) || 0 : 0, waterDate: today })
       },
 
       // TREINO ATIVO
@@ -51,40 +47,30 @@ const useAppStore = create(
 
       startWorkout: async (dayId) => {
         const uid = get().userId
-        const workout = {
-          dayId,
-          startedAt: new Date().toISOString(),
-          elapsedS: 0,
-          setsDone: [],
-        }
+        const workout = { dayId, startedAt: new Date().toISOString(), elapsedS: 0 }
         set({ activeWorkout: workout })
-        if (uid) {
-          await supabase.from('active_workout').upsert({
-            user_id: uid,
-            day_id: dayId,
-            started_at: workout.startedAt,
-            elapsed_s: 0,
-            sets_done: [],
-          }, { onConflict: 'user_id' })
-        }
+        if (!uid) return
+        await supabase.from('active_workout').upsert(
+          { user_id: uid, day_id: dayId, started_at: workout.startedAt, elapsed_s: 0, sets_done: [] },
+          { onConflict: 'user_id' }
+        )
       },
 
       finishWorkout: async () => {
         const uid = get().userId
         set({ activeWorkout: null })
         if (uid) await supabase.from('active_workout').delete().eq('user_id', uid)
+        get().setSyncMsg('✓ Treino finalizado')
       },
 
       syncWorkoutElapsed: async (elapsedS) => {
         const uid = get().userId
         const aw = get().activeWorkout
-        if (!aw) return
+        if (!aw || !uid) return
         set({ activeWorkout: { ...aw, elapsedS } })
-        if (uid) {
-          await supabase.from('active_workout')
-            .update({ elapsed_s: elapsedS, updated_at: new Date().toISOString() })
-            .eq('user_id', uid)
-        }
+        await supabase.from('active_workout')
+          .update({ elapsed_s: elapsedS, updated_at: new Date().toISOString() })
+          .eq('user_id', uid)
       },
 
       loadActiveWorkout: async () => {
@@ -92,23 +78,14 @@ const useAppStore = create(
         if (!uid) return
         const { data } = await supabase
           .from('active_workout').select('*').eq('user_id', uid).maybeSingle()
-        if (data) {
-          const startedAt = new Date(data.started_at)
-          const diffH = (Date.now() - startedAt.getTime()) / 1000 / 3600
-          if (diffH > 2) {
-            await supabase.from('active_workout').delete().eq('user_id', uid)
-            set({ activeWorkout: null })
-          } else {
-            const elapsed = data.elapsed_s + Math.floor((Date.now() - startedAt.getTime()) / 1000)
-            set({
-              activeWorkout: {
-                dayId: data.day_id,
-                startedAt: data.started_at,
-                elapsedS: elapsed,
-                setsDone: data.sets_done || [],
-              },
-            })
-          }
+        if (!data) { set({ activeWorkout: null }); return }
+        const diffH = (Date.now() - new Date(data.started_at).getTime()) / 3600000
+        if (diffH > 2) {
+          await supabase.from('active_workout').delete().eq('user_id', uid)
+          set({ activeWorkout: null })
+        } else {
+          const elapsed = data.elapsed_s + Math.floor((Date.now() - new Date(data.started_at).getTime()) / 1000)
+          set({ activeWorkout: { dayId: data.day_id, startedAt: data.started_at, elapsedS: elapsed } })
         }
       },
 
@@ -118,10 +95,12 @@ const useAppStore = create(
 
       loadSupls: async () => {
         const uid = get().userId
-        const today = todayDate()
         if (!uid) return
-        const rows = await dbGetToday('supl_logs', uid)
-        set({ suplDone: rows.map(r => r.supl_id), suplDate: today })
+        const today = todayDate()
+        const { data } = await supabase
+          .from('supl_logs').select('supl_id')
+          .eq('user_id', uid).eq('date', today)
+        set({ suplDone: data ? data.map(r => r.supl_id) : [], suplDate: today })
       },
 
       toggleSupl: async (suplId) => {
@@ -130,14 +109,13 @@ const useAppStore = create(
         const current = get().suplDone
         const isOn = current.includes(suplId)
         set({ suplDone: isOn ? current.filter(x => x !== suplId) : [...current, suplId] })
-        if (uid) {
-          if (isOn) {
-            await supabase.from('supl_logs')
-              .delete().eq('user_id', uid).eq('supl_id', suplId).eq('date', today)
-          } else {
-            await supabase.from('supl_logs')
-              .insert({ user_id: uid, supl_id: suplId, date: today })
-          }
+        if (!uid) return
+        if (isOn) {
+          await supabase.from('supl_logs')
+            .delete().eq('user_id', uid).eq('supl_id', suplId).eq('date', today)
+        } else {
+          await supabase.from('supl_logs')
+            .insert({ user_id: uid, supl_id: suplId, date: today })
         }
         get().setSyncMsg(isOn ? '○ Desmarcado' : '✓ Registrado')
       },
@@ -148,10 +126,12 @@ const useAppStore = create(
 
       loadMeals: async () => {
         const uid = get().userId
-        const today = todayDate()
         if (!uid) return
-        const rows = await dbGetToday('meal_logs_v2', uid)
-        set({ mealDone: rows.map(r => r.meal_id), mealDate: today })
+        const today = todayDate()
+        const { data } = await supabase
+          .from('meal_logs_v2').select('meal_id')
+          .eq('user_id', uid).eq('date', today)
+        set({ mealDone: data ? data.map(r => r.meal_id) : [], mealDate: today })
       },
 
       toggleMeal: async (mealId) => {
@@ -160,19 +140,18 @@ const useAppStore = create(
         const current = get().mealDone
         const isOn = current.includes(mealId)
         set({ mealDone: isOn ? current.filter(x => x !== mealId) : [...current, mealId] })
-        if (uid) {
-          if (isOn) {
-            await supabase.from('meal_logs_v2')
-              .delete().eq('user_id', uid).eq('meal_id', mealId).eq('date', today)
-          } else {
-            await supabase.from('meal_logs_v2')
-              .insert({ user_id: uid, meal_id: mealId, date: today })
-          }
+        if (!uid) return
+        if (isOn) {
+          await supabase.from('meal_logs_v2')
+            .delete().eq('user_id', uid).eq('meal_id', mealId).eq('date', today)
+        } else {
+          await supabase.from('meal_logs_v2')
+            .insert({ user_id: uid, meal_id: mealId, date: today })
         }
         get().setSyncMsg('✓ Salvo')
       },
 
-      // PESO MATINAL
+      // PESO
       weights: [],
 
       loadWeights: async () => {
@@ -188,25 +167,22 @@ const useAppStore = create(
         const uid = get().userId
         if (!uid) return
         const today = todayDate()
-        const { data, error } = await supabase
-          .from('morning_weights')
+        const { data, error } = await supabase.from('morning_weights')
           .upsert({ user_id: uid, weight: weightKg, date: today, notes }, { onConflict: 'user_id,date' })
           .select().single()
         if (!error && data) {
-          set(state => ({ weights: [data, ...state.weights.filter(w => w.date !== today)] }))
+          set(s => ({ weights: [data, ...s.weights.filter(w => w.date !== today)] }))
           get().setSyncMsg('✓ Peso salvo')
         }
       },
 
       deleteWeight: async (id) => {
-        const uid = get().userId
-        if (!uid) return
         await supabase.from('morning_weights').delete().eq('id', id)
-        set(state => ({ weights: state.weights.filter(w => w.id !== id) }))
+        set(s => ({ weights: s.weights.filter(w => w.id !== id) }))
         get().setSyncMsg('🗑 Removido')
       },
 
-      // MEDIDAS CORPORAIS
+      // MEDIDAS
       metrics: [],
 
       loadMetrics: async () => {
@@ -224,20 +200,20 @@ const useAppStore = create(
         const { data, error } = await supabase
           .from('body_metrics').insert({ user_id: uid, ...row }).select().single()
         if (!error && data) {
-          set(state => ({ metrics: [data, ...state.metrics] }))
+          set(s => ({ metrics: [data, ...s.metrics] }))
           get().setSyncMsg('✓ Medidas salvas')
         }
       },
 
       updateMetric: async (id, patch) => {
         await dbUpdate('body_metrics', id, patch)
-        set(state => ({ metrics: state.metrics.map(m => m.id === id ? { ...m, ...patch } : m) }))
+        set(s => ({ metrics: s.metrics.map(m => m.id === id ? { ...m, ...patch } : m) }))
         get().setSyncMsg('✓ Atualizado')
       },
 
       deleteMetric: async (id) => {
         await dbDelete('body_metrics', id)
-        set(state => ({ metrics: state.metrics.filter(m => m.id !== id) }))
+        set(s => ({ metrics: s.metrics.filter(m => m.id !== id) }))
         get().setSyncMsg('🗑 Removido')
       },
 
@@ -248,40 +224,86 @@ const useAppStore = create(
       loadHealth: async () => {
         const uid = get().userId
         if (!uid) return
-        const [hlogs, exams] = await Promise.all([
+        const [hlogs, examsRes] = await Promise.all([
           supabase.from('health_logs').select('*').eq('user_id', uid)
             .order('date', { ascending: false }).limit(30),
           supabase.from('exames_v2').select('*').eq('user_id', uid)
             .order('created_at', { ascending: false }),
         ])
         if (hlogs.data) set({ healthLogs: hlogs.data })
-        if (exams.data) set({ exams: exams.data })
+        if (examsRes.data) set({ exams: examsRes.data })
       },
 
       saveHealthLog: async (form) => {
         const uid = get().userId
+        if (!uid) return
         const today = todayDate()
-        const { data } = await supabase
-          .from('health_logs')
-          .upsert({ user_id: uid, date: today, ...form }, { onConflict: 'user_id,date' })
-          .select().single()
-        if (data) {
-          set(state => ({ healthLogs: [data, ...state.healthLogs.filter(h => h.date !== today)] }))
+        const { data, error } = await supabase.from('health_logs')
+          .upsert(
+            { user_id: uid, date: today, ...form },
+            { onConflict: 'user_id,date' }
+          ).select().single()
+        if (!error && data) {
+          set(s => ({ healthLogs: [data, ...s.healthLogs.filter(h => h.date !== today)] }))
           get().setSyncMsg('✓ Biofeedback salvo')
+        } else {
+          console.error('health_logs error:', error)
+          get().setSyncMsg('⚠ Erro ao salvar')
         }
       },
 
       addExam: async (exam) => {
         const uid = get().userId
-        const { data } = await supabase
+        if (!uid) return
+        const { data, error } = await supabase
           .from('exames_v2').insert({ user_id: uid, ...exam }).select().single()
-        if (data) set(state => ({ exams: [data, ...state.exams] }))
-        get().setSyncMsg('✓ Exame salvo')
+        if (!error && data) {
+          set(s => ({ exams: [data, ...s.exams] }))
+          get().setSyncMsg('✓ Exame salvo')
+        } else {
+          console.error('exames_v2 error:', error)
+          get().setSyncMsg('⚠ Erro ao salvar')
+        }
       },
 
       deleteExam: async (id) => {
         await dbDelete('exames_v2', id)
-        set(state => ({ exams: state.exams.filter(e => e.id !== id) }))
+        set(s => ({ exams: s.exams.filter(e => e.id !== id) }))
+        get().setSyncMsg('🗑 Removido')
+      },
+
+      // PERFIL
+      userProfile: null,
+
+      loadProfile: async () => {
+        const uid = get().userId
+        if (!uid) return
+        const { data } = await supabase
+          .from('user_profile').select('*').eq('user_id', uid).maybeSingle()
+        if (data) set({ userProfile: data })
+      },
+
+      saveProfile: async (form) => {
+        const uid = get().userId
+        if (!uid) return
+        const { data, error } = await supabase.from('user_profile').upsert(
+          {
+            user_id:   uid,
+            name:      form.name,
+            age:       form.age,
+            weight:    form.weight,
+            height:    form.height,
+            phase:     form.phase,
+            phase_end: form.phaseEnd,
+            bf_meta:   form.bfMeta,
+            objetivo:  form.objetivo,
+          },
+          { onConflict: 'user_id' }
+        ).select().single()
+        if (!error && data) {
+          set({ userProfile: data })
+          get().setSyncMsg('✓ Perfil salvo')
+        }
       },
 
       // WORKOUT LOGS
@@ -298,9 +320,10 @@ const useAppStore = create(
 
       addWorkoutLog: async (row) => {
         const uid = get().userId
-        const { data } = await supabase
+        if (!uid) return null
+        const { data, error } = await supabase
           .from('workout_logs').insert({ user_id: uid, ...row }).select().single()
-        if (data) set(state => ({ workoutLogs: [data, ...state.workoutLogs] }))
+        if (!error && data) set(s => ({ workoutLogs: [data, ...s.workoutLogs] }))
         return data
       },
 
@@ -316,30 +339,27 @@ const useAppStore = create(
           get().loadHealth(),
           get().loadWorkoutLogs(),
           get().loadActiveWorkout(),
+          get().loadProfile(),
         ])
         set({ loading: false })
         get().setSyncMsg('✓ Sincronizado')
       },
 
       reset: () => set({
-        userId: null, water: 0, waterDate: '',
-        activeWorkout: null, suplDone: [], mealDone: [],
-        weights: [], metrics: [], healthLogs: [], exams: [], workoutLogs: [],
+        userId: null, water: 0, waterDate: '', activeWorkout: null,
+        suplDone: [], mealDone: [], weights: [], metrics: [],
+        healthLogs: [], exams: [], workoutLogs: [], userProfile: null,
         loading: true,
       }),
     }),
 
     {
-      name: 'atlas-store-v2',
+      name: 'atlas-v3',
       storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({
-        water: state.water,
-        waterDate: state.waterDate,
-        activeWorkout: state.activeWorkout,
-        suplDone: state.suplDone,
-        suplDate: state.suplDate,
-        mealDone: state.mealDone,
-        mealDate: state.mealDate,
+      partialize: (s) => ({
+        water: s.water,
+        waterDate: s.waterDate,
+        activeWorkout: s.activeWorkout,
       }),
     }
   )
