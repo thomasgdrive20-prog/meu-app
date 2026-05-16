@@ -1,22 +1,32 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { LogOut, Camera, Edit2, X } from 'lucide-react'
 import useAppStore from '../stores/useAppStore'
 import { supabase } from '../lib/supabaseClient'
 import { USER_PROFILE, SUPLS, PROTOCOL_COMPOUNDS, T } from '../lib/constants'
 
-const todayStr = () => new Date().toISOString().slice(0, 10)
-
 export default function PerfilPage({ session, handleLogout }) {
   const uid = session.user.id
   const fileRef = useRef()
-  const { suplDone, toggleSupl } = useAppStore()
+  const { suplDone, toggleSupl, userProfile, saveProfile, loadProfile } = useAppStore()
 
-  const [photo, setPhoto] = useState(session.user.user_metadata?.avatar_url || null)
   const [tab, setTab] = useState('perfil')
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [profile, setProfile] = useState({
+  const [photoSaving, setPhotoSaving] = useState(false)
+  const [photo, setPhoto] = useState(session.user.user_metadata?.avatar_url || null)
+
+  // Monta o perfil com dados do banco ou fallback dos constants
+  const profile = userProfile ? {
+    name:     userProfile.name     || USER_PROFILE.name,
+    age:      userProfile.age      || USER_PROFILE.age,
+    weight:   userProfile.weight   || USER_PROFILE.weight,
+    height:   userProfile.height   || USER_PROFILE.height,
+    phase:    userProfile.phase    || USER_PROFILE.phase,
+    phaseEnd: userProfile.phase_end || USER_PROFILE.phaseEnd,
+    bfMeta:   userProfile.bf_meta  || USER_PROFILE.bfMeta,
+    objetivo: userProfile.objetivo || USER_PROFILE.objetivo,
+  } : {
     name:     USER_PROFILE.name,
     age:      USER_PROFILE.age,
     weight:   USER_PROFILE.weight,
@@ -25,26 +35,67 @@ export default function PerfilPage({ session, handleLogout }) {
     phaseEnd: USER_PROFILE.phaseEnd,
     bfMeta:   USER_PROFILE.bfMeta,
     objetivo: USER_PROFILE.objetivo,
-  })
+  }
+
   const [form, setForm] = useState(profile)
 
-  const saveProfile = async () => {
+  // Atualiza form quando perfil carrega do banco
+  useEffect(() => {
+    if (userProfile) {
+      setForm({
+        name:     userProfile.name     || USER_PROFILE.name,
+        age:      userProfile.age      || USER_PROFILE.age,
+        weight:   userProfile.weight   || USER_PROFILE.weight,
+        height:   userProfile.height   || USER_PROFILE.height,
+        phase:    userProfile.phase    || USER_PROFILE.phase,
+        phaseEnd: userProfile.phase_end || USER_PROFILE.phaseEnd,
+        bfMeta:   userProfile.bf_meta  || USER_PROFILE.bfMeta,
+        objetivo: userProfile.objetivo || USER_PROFILE.objetivo,
+      })
+    }
+  }, [userProfile])
+
+  const handleSaveProfile = async () => {
     setSaving(true)
-    await supabase.from('user_profile').upsert({
-      user_id:   uid,
-      name:      form.name,
-      age:       form.age,
-      weight:    form.weight,
-      height:    form.height,
-      phase:     form.phase,
-      phase_end: form.phaseEnd,
-      bf_meta:   form.bfMeta,
-      objetivo:  form.objetivo,
-    }, { onConflict: 'user_id' })
-    setProfile(form)
+    await saveProfile(form)
     setEditing(false)
     setSaving(false)
   }
+
+  const handlePhotoChange = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setPhotoSaving(true)
+
+    // Preview imediato
+    const reader = new FileReader()
+    reader.onload = ev => setPhoto(ev.target.result)
+    reader.readAsDataURL(file)
+
+    // Upload para Supabase Storage
+    const ext = file.name.split('.').pop()
+    const path = `${uid}/avatar.${ext}`
+    const { error } = await supabase.storage
+      .from('photos').upload(path, file, { upsert: true })
+
+    if (!error) {
+      const { data: urlData } = supabase.storage.from('photos').getPublicUrl(path)
+      if (urlData?.publicUrl) {
+        await supabase.auth.updateUser({
+          data: { avatar_url: urlData.publicUrl }
+        })
+        setPhoto(urlData.publicUrl)
+      }
+    }
+    setPhotoSaving(false)
+  }
+
+  const daysLeft = (() => {
+    if (!profile.phaseEnd) return null
+    const end = new Date(profile.phaseEnd)
+    const diff = Math.ceil((end - new Date()) / 86400000)
+    return diff > 0 ? diff : 0
+  })()
 
   const tabs = [
     { id: 'perfil',    label: 'Perfil'      },
@@ -62,24 +113,16 @@ export default function PerfilPage({ session, handleLogout }) {
     { label: 'Meta BF%',    key: 'bfMeta',   type: 'number' },
   ]
 
-  // Dias até o fim da fase
-  const daysLeft = (() => {
-    if (!profile.phaseEnd) return null
-    const end = new Date(profile.phaseEnd)
-    const now = new Date()
-    const diff = Math.ceil((end - now) / (1000 * 60 * 60 * 24))
-    return diff > 0 ? diff : 0
-  })()
-
   return (
     <div style={{ padding: '20px 16px', paddingTop: 'calc(env(safe-area-inset-top) + 20px)' }}>
 
-      {/* Header com foto */}
+      {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
         style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}
       >
+        {/* Foto */}
         <div style={{ position: 'relative' }}>
           <div
             onClick={() => fileRef.current?.click()}
@@ -94,27 +137,36 @@ export default function PerfilPage({ session, handleLogout }) {
               ? <img src={photo} alt="Perfil" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               : <span style={{ fontSize: 28 }}>👤</span>
             }
+            {photoSaving && (
+              <div style={{
+                position: 'absolute', inset: 0, background: '#00000080',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <div style={{
+                  width: 20, height: 20, border: `2px solid ${T.gold}`,
+                  borderTopColor: 'transparent', borderRadius: '50%',
+                  animation: 'spin 0.8s linear infinite',
+                }} />
+              </div>
+            )}
           </div>
           <div
             onClick={() => fileRef.current?.click()}
             style={{
               position: 'absolute', bottom: 0, right: 0,
               width: 22, height: 22, borderRadius: '50%',
-              background: T.gold, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              cursor: 'pointer',
+              background: T.gold, display: 'flex', alignItems: 'center',
+              justifyContent: 'center', cursor: 'pointer',
             }}
           >
             <Camera size={12} color="#111010" />
           </div>
         </div>
-        <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }}
-          onChange={e => {
-            const file = e.target.files[0]
-            if (!file) return
-            const reader = new FileReader()
-            reader.onload = ev => setPhoto(ev.target.result)
-            reader.readAsDataURL(file)
-          }}
+
+        <input
+          ref={fileRef} type="file" accept="image/*"
+          style={{ display: 'none' }}
+          onChange={handlePhotoChange}
         />
 
         <div style={{ flex: 1 }}>
@@ -136,7 +188,8 @@ export default function PerfilPage({ session, handleLogout }) {
           style={{
             width: 36, height: 36, borderRadius: 10,
             background: `${T.alert}11`, border: `1px solid ${T.alert}33`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer',
           }}
         >
           <LogOut size={16} color={T.alert} />
@@ -164,11 +217,12 @@ export default function PerfilPage({ session, handleLogout }) {
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <div style={{ fontSize: 13, color: T.text, fontWeight: 700 }}>Dados pessoais</div>
-            <motion.button whileTap={{ scale: 0.92 }} onClick={() => { setForm(profile); setEditing(true) }}
+            <motion.button whileTap={{ scale: 0.92 }}
+              onClick={() => { setForm(profile); setEditing(true) }}
               style={{
-                padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                background: `${T.gold}22`, border: `1px solid ${T.gold}44`, color: T.gold,
-                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                cursor: 'pointer', background: `${T.gold}22`, border: `1px solid ${T.gold}44`,
+                color: T.gold, display: 'flex', alignItems: 'center', gap: 6,
               }}>
               <Edit2 size={12} /> Editar
             </motion.button>
@@ -182,12 +236,12 @@ export default function PerfilPage({ session, handleLogout }) {
                 borderBottom: i < fields.length - 1 ? `1px solid ${T.border}` : 'none',
               }}>
                 <span style={{ fontSize: 13, color: T.muted }}>{f.label}</span>
-                <span style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>{profile[f.key]}</span>
+                <span style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>{profile[f.key] || '—'}</span>
               </div>
             ))}
           </div>
 
-          {/* Barra de progresso da fase */}
+          {/* Barra da fase */}
           {daysLeft !== null && (
             <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: '14px', marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -203,7 +257,7 @@ export default function PerfilPage({ session, handleLogout }) {
                 />
               </div>
               <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>
-                Meta: {profile.bfMeta}% BF · Objetivo até {profile.phaseEnd}
+                Meta: {profile.bfMeta}% BF · Fim em {profile.phaseEnd}
               </div>
             </div>
           )}
@@ -255,8 +309,7 @@ export default function PerfilPage({ session, handleLogout }) {
                       width: 40, height: 40, borderRadius: 10, flexShrink: 0, marginLeft: 12,
                       border: `1px solid ${done ? T.ok + '55' : T.border}`,
                       background: done ? `${T.ok}22` : T.card,
-                      color: done ? T.ok : T.muted,
-                      fontSize: 18, cursor: 'pointer',
+                      color: done ? T.ok : T.muted, fontSize: 18, cursor: 'pointer',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}>
                     {done ? '✓' : '+'}
@@ -299,8 +352,7 @@ export default function PerfilPage({ session, handleLogout }) {
                       width: 40, height: 40, borderRadius: 10,
                       border: `1px solid ${done ? T.ok + '55' : T.border}`,
                       background: done ? `${T.ok}22` : T.card,
-                      color: done ? T.ok : T.muted,
-                      fontSize: 18, cursor: 'pointer',
+                      color: done ? T.ok : T.muted, fontSize: 18, cursor: 'pointer',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}>
                     {done ? '✓' : '+'}
@@ -319,7 +371,11 @@ export default function PerfilPage({ session, handleLogout }) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#000000dd', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 9999,
+              background: '#000000dd', display: 'flex',
+              alignItems: 'flex-end', justifyContent: 'center',
+            }}
           >
             <motion.div
               initial={{ y: 100 }}
@@ -341,13 +397,16 @@ export default function PerfilPage({ session, handleLogout }) {
 
               {fields.map(f => (
                 <div key={f.key} style={{ marginBottom: 14 }}>
-                  <label style={{ fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: 0.8, display: 'block', marginBottom: 5 }}>
+                  <label style={{
+                    fontSize: 11, color: T.muted, textTransform: 'uppercase',
+                    letterSpacing: 0.8, display: 'block', marginBottom: 5,
+                  }}>
                     {f.label}
                   </label>
                   <input
                     type={f.type}
                     value={form[f.key] ?? ''}
-                    onChange={e => setForm(prev => ({ ...prev, [f.key]: e.target.value }))}
+                    onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
                     style={{
                       width: '100%', padding: '12px 14px', borderRadius: 10,
                       background: T.faint, border: `1px solid ${T.border}`,
@@ -357,12 +416,16 @@ export default function PerfilPage({ session, handleLogout }) {
                 </div>
               ))}
 
-              <motion.button whileTap={{ scale: 0.97 }} onClick={saveProfile} disabled={saving}
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                onClick={handleSaveProfile}
+                disabled={saving}
                 style={{
                   width: '100%', padding: '14px', borderRadius: 12, marginTop: 8,
                   background: `${T.gold}22`, border: `1px solid ${T.gold}66`,
                   color: T.gold, fontSize: 14, fontWeight: 800, cursor: 'pointer',
-                }}>
+                }}
+              >
                 {saving ? 'Salvando...' : '💾 Salvar alterações'}
               </motion.button>
             </motion.div>
@@ -370,6 +433,7 @@ export default function PerfilPage({ session, handleLogout }) {
         )}
       </AnimatePresence>
 
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
     </div>
   )
 }
