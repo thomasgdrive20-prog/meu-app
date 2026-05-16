@@ -359,7 +359,8 @@ export default function TreinoPage({ session }) {
         ))}
       </div>
 
-      {/* Card do treino */}
+      {/* Card do treino — só mostra se não for esporte */}
+      {!day.sport && (
       <div style={{
         background: T.card, border: `1px solid ${T.gold}33`,
         borderRadius: 16, padding: '16px', marginBottom: 16,
@@ -411,6 +412,7 @@ export default function TreinoPage({ session }) {
           </motion.button>
         )}
       </div>
+      )}
 
       {/* Aquecimento */}
       {warmup.length > 0 && (
