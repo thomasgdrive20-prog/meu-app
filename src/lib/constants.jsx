@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Droplets, ChevronRight, Scale, Pill, Utensils, TrendingDown, TrendingUp, Minus, Zap } from 'lucide-react'
 import useAppStore from '../stores/useAppStore'
-import { SPLIT, DIET, SUPLS, PROTOCOL_COMPOUNDS, T } from '../lib/constants'
+import { SPLIT, DIET, SUPLS, PROTOCOL_COMPOUNDS, T } from './constants'
 
 function getTodayWorkout() {
   const days = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
