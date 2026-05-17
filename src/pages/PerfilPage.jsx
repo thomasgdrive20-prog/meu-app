@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabaseClient'
 import { USER_PROFILE, SUPLS, PROTOCOL_COMPOUNDS, T } from '../lib/constants'
 
 export default function PerfilPage({ session, handleLogout }) {
-  const uid = session.user.id
+  const uid = session?.user?.id
   const fileRef = useRef()
   const { suplDone, toggleSupl, userProfile, saveProfile, loadProfile } = useAppStore()
 
@@ -14,7 +14,7 @@ export default function PerfilPage({ session, handleLogout }) {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [photoSaving, setPhotoSaving] = useState(false)
-  const [photo, setPhoto] = useState(session.user.user_metadata?.avatar_url || null)
+  const [photo, setPhoto] = useState(session?.user?.user_metadata?.avatar_url || null)
 
   // Monta o perfil com dados do banco ou fallback dos constants
   const profile = userProfile ? {
@@ -264,7 +264,7 @@ export default function PerfilPage({ session, handleLogout }) {
 
           <div style={{ background: T.faint, border: `1px solid ${T.border}`, borderRadius: 12, padding: '12px 16px' }}>
             <div style={{ fontSize: 11, color: T.muted }}>Conta Google</div>
-            <div style={{ fontSize: 13, color: T.text, fontWeight: 600, marginTop: 4 }}>{session.user.email}</div>
+            <div style={{ fontSize: 13, color: T.text, fontWeight: 600, marginTop: 4 }}>{session?.user?.email}</div>
           </div>
         </motion.div>
       )}

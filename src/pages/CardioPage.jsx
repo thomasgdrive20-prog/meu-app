@@ -38,7 +38,7 @@ function StatusBar({ label, current, meta, color, unit = 'min' }) {
 }
 
 export default function CardioPage({ session }) {
-  const uid = session.user.id
+  const uid = session?.user?.id
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)

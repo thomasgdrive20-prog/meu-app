@@ -45,7 +45,7 @@ export default function App() {
       checkDailyReset(useAppStore)
       // Limpa dados em cache e recarrega do Supabase
       useAppStore.setState({ weights: [], metrics: [], healthLogs: [], exams: [], workoutLogs: [] })
-      boot(session.user.id)
+      if (session?.user?.id) { boot(session.user.id) }
     } else if (!session && !authLoading) {
       reset()
     }

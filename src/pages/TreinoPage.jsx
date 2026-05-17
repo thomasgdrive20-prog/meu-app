@@ -273,7 +273,7 @@ function ExerciseCard({ ex, uid, dayId }) {
 
 // ── Página principal ──────────────────────────────────────────────────────────
 export default function TreinoPage({ session }) {
-  const uid = session.user.id
+  const uid = session?.user?.id
   const { activeWorkout, startWorkout, finishWorkout, syncWorkoutElapsed } = useAppStore()
 
   const [selectedDay, setSelectedDay] = useState(() => {
