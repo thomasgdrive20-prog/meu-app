@@ -11,6 +11,7 @@ import SaudePage from './pages/SaudePage'
 import PerfilPage from './pages/PerfilPage'
 import AnalyticsPage from './pages/AnalyticsPage'
 import { T } from './lib/constants'
+import CardioPage from './pages/CardioPage'
 
 const PAGE_ORDER = ['home', 'treino', 'nutri', 'saude', 'analytics', 'perfil']
 
@@ -123,6 +124,7 @@ export default function App() {
           style={{ minHeight: '100vh' }}>
           {page === 'home'      && <HomePage      {...pageProps} />}
           {page === 'treino'    && <TreinoPage    {...pageProps} />}
+          {page === 'cardio' && <CardioPage {...pageProps} />}
           {page === 'nutri'     && <NutriPage     {...pageProps} />}
           {page === 'saude'     && <SaudePage     {...pageProps} />}
           {page === 'analytics' && <AnalyticsPage {...pageProps} />}
