@@ -181,7 +181,7 @@ const ALL_DAILY = [...DAILY_SUPLS, ...DAILY_PROTO]
 
 export default function HomePage({ session, setPage }) {
   const workout = getTodayWorkout()
-  const firstName = session.user.user_metadata?.full_name?.split(' ')[0] || 'Thomas'
+  const firstName = session?.user?.user_metadata?.full_name?.split(' ')[0] || 'Thomas'
   const { water, setWater, weights, addWeight, deleteWeight, suplDone, toggleSupl, mealDone, toggleMeal, activeWorkout } = useAppStore()
 
   const [weightInput, setWeightInput] = useState('')
